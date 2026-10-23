@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <title>all2uri</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <main class="main-content">
+        <div class="workspace" id="workspace">
+          <section class="panel input-panel" id="input-panel" aria-labelledby="input-title">
+            <div class="panel-header">
+              <div class="panel-title-group">
+                <div>
+                  <h2 id="input-title">输入</h2>
+                </div>
+              </div>
+              <div class="panel-header-actions">
+                <button class="text-button settings-button" id="input-settings-button" type="button" data-settings-view="input">设置</button>
+                <button class="text-button detail-button" id="input-detail-button" type="button" aria-expanded="false" aria-controls="input-panel">查看详情</button>
+              </div>
+            </div>
+
+            <div class="field-heading">
+              <label class="field-label" for="subscription-urls">订阅 / 节点内容</label>
+              <div class="inline-actions">
+                <button class="text-button" id="paste-button" type="button">粘贴</button>
+                <button class="text-button" id="import-file-button" type="button">导入文件</button>
+              </div>
+            </div>
+            <div class="textarea-wrap">
+              <textarea
+                id="subscription-urls"
+                class="url-input"
+                rows="9"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="https://example.com/api/v1/client/subscribe?token=...&#10;vless://uuid@example.com:443#节点&#10;Clash YAML / sing-box / Xray JSON"
+              ></textarea>
+            </div>
+
+            <div class="validation-message" id="validation-message" hidden></div>
+
+            <div class="run-area">
+              <button class="primary-button" id="convert-button" type="button">
+                <span class="button-spinner" aria-hidden="true"></span>
+                <span class="button-label">开始转换</span>
+              </button>
+            </div>
+          </section>
+
+          <div class="panel-resizer" data-resizer="0" role="separator" aria-orientation="vertical" aria-label="调整输入和处理版块宽度" title="拖动调整宽度，双击恢复均分" tabindex="0"></div>
+
+          <section class="panel processing-panel" id="processing-panel" aria-labelledby="processing-title">
+            <div class="panel-header">
+              <div class="panel-title-group">
+                <div>
+                  <h2 id="processing-title">处理</h2>
+                </div>
+              </div>
+              <div class="panel-header-actions">
+                <span class="panel-status" id="processing-status" data-state="idle" role="status" hidden></span>
+                <button class="text-button settings-button" id="processing-settings-button" type="button" data-settings-view="processing">设置</button>
+                <button class="text-button detail-button" id="processing-detail-button" type="button" aria-expanded="false" aria-controls="processing-panel">查看详情</button>
+              </div>
+            </div>
+
+            <div class="progress-copy" id="progress-copy" aria-live="polite">准备就绪</div>
+            <div class="progress-track" aria-hidden="true">
+              <span id="progress-bar"></span>
+            </div>
+
+            <div class="processing-empty" id="processing-empty">
+              <strong>等待开始</strong>
+            </div>
+
+          </section>
+
+          <div class="panel-resizer" data-resizer="1" role="separator" aria-orientation="vertical" aria-label="调整处理和输出版块宽度" title="拖动调整宽度，双击恢复均分" tabindex="0"></div>
+
+          <section class="panel output-panel" id="output-panel" aria-labelledby="result-title">
+            <div class="panel-header">
+              <div class="panel-title-group">
+                <div>
+                  <h2 id="result-title">输出</h2>
+                </div>
+              </div>
+              <div class="panel-header-actions">
+                <div class="result-stats" aria-live="polite">
+                  <span><strong id="node-count">0</strong> 节点</span>
+                  <span><strong id="source-count">0</strong> 来源</span>
+                  <span><strong id="duplicate-count">0</strong> 重复</span>
+                </div>
+                <button class="text-button settings-button" id="output-settings-button" type="button" data-settings-view="output">设置</button>
+                <button class="text-button detail-button" id="output-detail-button" type="button" aria-expanded="false" aria-controls="output-panel">查看详情</button>
+              </div>
+            </div>
+
+            <div class="empty-state" id="empty-state" aria-live="polite">
+              <strong id="empty-state-title">等待输出</strong>
+            </div>
+
+            <div class="output-area" id="output-area" hidden>
+              <div class="output-heading">
+                <label for="output-uris">节点 URI</label>
+                <span id="output-size"></span>
+              </div>
+              <textarea id="output-uris" class="output-textarea" readonly spellcheck="false"></textarea>
+              <div class="output-actions">
+                <button class="secondary-button" id="copy-button" type="button">
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <rect x="6.5" y="6.5" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.4" />
+                    <path d="M13 6V4.8c0-.7-.6-1.3-1.3-1.3H5.8c-.7 0-1.3.6-1.3 1.3v7.4c0 .7.6 1.3 1.3 1.3H6.5" stroke="currentColor" stroke-width="1.4" />
+                  </svg>
+                  复制全部
+                </button>
+                <button class="primary-button compact" id="save-button" type="button">
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M10 3v9m0 0 3.2-3.2M10 12 6.8 8.8M4 13.8v1.5c0 .9.7 1.7 1.7 1.7h8.6c.9 0 1.7-.7 1.7-1.7v-1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                  保存 TXT
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <section class="log-panel" aria-labelledby="log-title">
+        <div class="log-header">
+          <strong id="log-title">日志</strong>
+          <button class="text-button" id="clear-log-button" type="button">清空日志</button>
+        </div>
+        <div class="log-list" id="log-list" role="log" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <div class="settings-backdrop" id="settings-backdrop" hidden></div>
+    <section class="settings-dialog" id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+      <div class="settings-heading">
+        <strong id="settings-title">输入设置</strong>
+        <button class="text-button" id="settings-close-button" type="button">关闭</button>
+      </div>
+      <div class="settings-pane" data-settings-view="input">
+        <label class="field-label" for="user-agent-select">User-Agent</label>
+        <select id="user-agent-select" class="select-input">
+          <option value="auto">自动识别（推荐）</option>
+          <option value="nekobox">NekoBox / Clash Meta</option>
+          <option value="sing-box">sing-box</option>
+          <option value="clash">Clash Meta</option>
+          <option value="v2rayn">v2rayN</option>
+          <option value="custom">自定义</option>
+        </select>
+        <input
+          id="custom-user-agent"
+          class="text-input"
+          type="text"
+          maxlength="512"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="例如：MyClient/1.0"
+          hidden
+        />
+        <div class="settings-divider" aria-hidden="true"></div>
+        <div class="security-option">
+          <button
+            class="toggle-button"
+            id="skip-certificate-verification"
+            type="button"
+            aria-pressed="false"
+          >
+            <span class="toggle-indicator" aria-hidden="true"></span>
+            跳过证书验证
+          </button>
+          <p class="option-note security-note" id="skip-certificate-note" hidden>
+            已关闭 TLS 证书校验，仅对证书异常或自签名的可信订阅源使用。
+          </p>
+        </div>
+      </div>
+      <div class="settings-pane" data-settings-view="processing" hidden>
+        <div class="settings-limits">
+          <span class="settings-section-label">请求限制</span>
+          <div class="settings-grid">
+            <div class="settings-field">
+              <label class="field-label" for="max-response-mib">响应上限（1–64 MiB）</label>
+              <input
+                id="max-response-mib"
+                class="text-input number-input"
+                type="number"
+                min="1"
+                max="64"
+                step="1"
+                value="2"
+                inputmode="numeric"
+              />
+            </div>
+            <div class="settings-field">
+              <label class="field-label" for="max-redirects">最大重定向（0–50）</label>
+              <input
+                id="max-redirects"
+                class="text-input number-input"
+                type="number"
+                min="0"
+                max="50"
+                step="1"
+                value="10"
+                inputmode="numeric"
+              />
+            </div>
+            <div class="settings-field settings-field-wide">
+              <label class="field-label" for="fetch-concurrency">并发数量（1–20）</label>
+              <input
+                id="fetch-concurrency"
+                class="text-input number-input"
+                type="number"
+                min="1"
+                max="20"
+                step="1"
+                value="3"
+                inputmode="numeric"
+                aria-describedby="fetch-concurrency-note"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="settings-pane" data-settings-view="output" hidden>
+        <button class="toggle-button" id="deduplicate-output" type="button" aria-pressed="true">
+          <span class="toggle-indicator" aria-hidden="true"></span>
+          自动去重
+        </button>
+      </div>
+    </section>
+    <div class="detail-backdrop" id="detail-backdrop" hidden></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
