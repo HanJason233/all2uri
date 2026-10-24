@@ -23,7 +23,6 @@ interface FetchFailure {
 
 type SourceState = "pending" | "success" | "error";
 type ProcessingState = "idle" | "running" | "done" | "warning" | "error";
-type SettingsView = "input" | "processing" | "output";
 
 type SourceKind = "local" | "remote";
 
@@ -74,12 +73,6 @@ function getElement<T extends HTMLElement>(id: string): T {
 const dom = {
   urls: getElement<HTMLTextAreaElement>("subscription-urls"),
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
-  settingsDialog: getElement<HTMLElement>("settings-dialog"),
-  settingsBackdrop: getElement<HTMLDivElement>("settings-backdrop"),
-  settingsCloseButton: getElement<HTMLButtonElement>("settings-close-button"),
-  settingsButtons: Array.from(document.querySelectorAll<HTMLButtonElement>(".settings-button")),
-  settingsTitle: getElement<HTMLElement>("settings-title"),
-  settingsPanes: Array.from(document.querySelectorAll<HTMLElement>(".settings-pane")),
   workspace: getElement<HTMLElement>("workspace"),
   panelResizers: Array.from(document.querySelectorAll<HTMLElement>(".panel-resizer")),
   validation: getElement<HTMLDivElement>("validation-message"),
@@ -98,7 +91,6 @@ const dom = {
   progressCopy: getElement<HTMLDivElement>("progress-copy"),
   progressBar: getElement<HTMLSpanElement>("progress-bar"),
   processingStatus: getElement<HTMLSpanElement>("processing-status"),
-  processingEmpty: getElement<HTMLDivElement>("processing-empty"),
   emptyState: getElement<HTMLDivElement>("empty-state"),
   emptyStateTitle: getElement<HTMLElement>("empty-state-title"),
   logList: getElement<HTMLDivElement>("log-list"),
@@ -142,13 +134,11 @@ const detailViews: DetailView[] = [
 
 const MIN_PANEL_WIDTH = 200;
 const SPLITTER_WIDTH = 9;
-const DEFAULT_PANEL_RATIOS = [1 / 3, 1 / 3, 1 / 3];
+const DEFAULT_PANEL_RATIOS = [0.29, 0.42, 0.29];
 
 let activeDetail: DetailView | null = null;
 let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
-let activeSettingsView: SettingsView | null = null;
-let settingsTrigger: HTMLButtonElement | null = null;
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
 let duplicateCount = 0;
@@ -175,37 +165,6 @@ function showToast(message: string, error = false) {
   toastTimer = window.setTimeout(() => dom.toast.classList.remove("visible"), 3200);
 }
 
-const SETTINGS_TITLES: Record<SettingsView, string> = {
-  input: "输入设置",
-  processing: "处理设置",
-  output: "输出设置",
-};
-
-function openSettings(view: SettingsView, trigger?: HTMLButtonElement) {
-  if (activeDetail) closeDetail(false);
-  if (trigger) settingsTrigger = trigger;
-  else if (!activeSettingsView) settingsTrigger = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
-  activeSettingsView = view;
-  dom.settingsTitle.textContent = SETTINGS_TITLES[view];
-  for (const pane of dom.settingsPanes) pane.hidden = pane.dataset.settingsView !== view;
-  dom.settingsDialog.hidden = false;
-  dom.settingsBackdrop.hidden = false;
-  document.body.classList.add("settings-open");
-  const activePane = dom.settingsPanes.find(pane => pane.dataset.settingsView === view);
-  window.requestAnimationFrame(() => activePane?.querySelector<HTMLElement>("select, input, button")?.focus());
-}
-
-function closeSettings(focusTrigger = true) {
-  if (dom.settingsDialog.hidden) return;
-  dom.settingsDialog.hidden = true;
-  dom.settingsBackdrop.hidden = true;
-  document.body.classList.remove("settings-open");
-  const trigger = settingsTrigger;
-  activeSettingsView = null;
-  settingsTrigger = null;
-  if (focusTrigger) trigger?.focus();
-}
-
 function closeDetail(focusTrigger = true) {
   if (!activeDetail) return;
   const { panel, button } = activeDetail;
@@ -221,7 +180,6 @@ function closeDetail(focusTrigger = true) {
 }
 
 function openDetail(view: DetailView) {
-  closeSettings(false);
   if (activeDetail && activeDetail !== view) closeDetail(false);
   activeDetail = view;
   view.panel.classList.add("is-expanded");
@@ -381,13 +339,11 @@ function resolveUserAgent(): string | null {
   if (preset === "custom") {
     const custom = dom.customUserAgent.value.trim();
     if (!custom) {
-      openSettings("input");
       setValidation("已选择自定义 User-Agent，但输入内容为空。");
       dom.customUserAgent.focus();
       throw new ConversionError("invalid_user_agent", "自定义 User-Agent 不能为空。");
     }
     if (custom.length > 512 || /[\r\n]/.test(custom)) {
-      openSettings("input");
       setValidation("User-Agent 不能包含换行，且长度不能超过 512 个字符。");
       dom.customUserAgent.focus();
       throw new ConversionError("invalid_user_agent", "User-Agent 格式无效。");
@@ -462,7 +418,6 @@ async function importFile() {
 function resolveRequestLimits(): { maxResponseBytes: number; maxRedirects: number } {
   const maxResponseMib = dom.maxResponseMib.valueAsNumber;
   if (!Number.isInteger(maxResponseMib) || maxResponseMib < MIN_RESPONSE_MIB || maxResponseMib > MAX_RESPONSE_MIB) {
-    openSettings("processing");
     setValidation(`响应上限必须是 ${MIN_RESPONSE_MIB} 到 ${MAX_RESPONSE_MIB} MiB 之间的整数。`);
     dom.maxResponseMib.focus();
     throw new ConversionError("invalid_response_limit", "响应上限设置无效。");
@@ -470,7 +425,6 @@ function resolveRequestLimits(): { maxResponseBytes: number; maxRedirects: numbe
 
   const maxRedirects = dom.maxRedirects.valueAsNumber;
   if (!Number.isInteger(maxRedirects) || maxRedirects < 0 || maxRedirects > MAX_REDIRECTS) {
-    openSettings("processing");
     setValidation(`最大重定向必须是 0 到 ${MAX_REDIRECTS} 之间的整数。`);
     dom.maxRedirects.focus();
     throw new ConversionError("invalid_redirect_limit", "重定向设置无效。");
@@ -482,7 +436,6 @@ function resolveRequestLimits(): { maxResponseBytes: number; maxRedirects: numbe
 function resolveFetchConcurrency(): number {
   const concurrency = dom.fetchConcurrency.valueAsNumber;
   if (!Number.isInteger(concurrency) || concurrency < MIN_FETCH_CONCURRENCY || concurrency > MAX_FETCH_CONCURRENCY) {
-    openSettings("processing");
     setValidation(`并发数量必须是 ${MIN_FETCH_CONCURRENCY} 到 ${MAX_FETCH_CONCURRENCY} 之间的整数。`);
     dom.fetchConcurrency.focus();
     throw new ConversionError("invalid_concurrency", "并发数量设置无效。");
@@ -763,7 +716,6 @@ async function startConversion() {
     }
   }
 
-  closeSettings(false);
   closeDetail(false);
 
   cancelRequested = false;
@@ -848,7 +800,6 @@ async function startConversion() {
   })));
 
   dom.logList.replaceChildren();
-  dom.processingEmpty.hidden = true;
   appendLog(`开始处理：${totalSources} 个来源`);
   if (!hasLocal && (input.fragmentsTruncated || input.uriLimitReached || input.decodedTooLarge > 0 || input.depthLimited)) {
     appendLog("输入展开或 URI 提取触及资源上限，部分内容已跳过。", true);
@@ -1050,7 +1001,6 @@ function bindEvents() {
       closeDetail();
       return;
     }
-    if (!dom.settingsDialog.hidden) closeSettings();
   });
 
   dom.urls.addEventListener("keydown", event => {
@@ -1067,14 +1017,6 @@ function bindEvents() {
 
   dom.skipCertificateVerification.addEventListener("click", toggleCertificateVerification);
 
-  for (const button of dom.settingsButtons) {
-    button.addEventListener("click", () => {
-      const view = button.dataset.settingsView;
-      if (view === "input" || view === "processing" || view === "output") openSettings(view, button);
-    });
-  }
-  dom.settingsCloseButton.addEventListener("click", () => closeSettings());
-  dom.settingsBackdrop.addEventListener("click", () => closeSettings());
   dom.deduplicateOutput.addEventListener("click", toggleOutputDeduplication);
   dom.includeLossyOutput.addEventListener("click", toggleLossyOutput);
   dom.allowLocalNetwork.addEventListener("click", () => {

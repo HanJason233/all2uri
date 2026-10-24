@@ -21,7 +21,6 @@
                 </div>
               </div>
               <div class="panel-header-actions">
-                <button class="text-button settings-button" id="input-settings-button" type="button" data-settings-view="input">设置</button>
                 <button class="text-button detail-button" id="input-detail-button" type="button" aria-expanded="false" aria-controls="input-panel">查看详情</button>
               </div>
             </div>
@@ -59,25 +58,137 @@
             <div class="panel-header">
               <div class="panel-title-group">
                 <div>
-                  <h2 id="processing-title">处理</h2>
+                  <h2 id="processing-title">设置</h2>
                 </div>
               </div>
               <div class="panel-header-actions">
                 <span class="panel-status" id="processing-status" data-state="idle" role="status" hidden></span>
-                <button class="text-button settings-button" id="processing-settings-button" type="button" data-settings-view="processing">设置</button>
                 <button class="text-button detail-button" id="processing-detail-button" type="button" aria-expanded="false" aria-controls="processing-panel">查看详情</button>
               </div>
             </div>
 
-            <div class="progress-copy" id="progress-copy" aria-live="polite">准备就绪</div>
-            <div class="progress-track" aria-hidden="true">
-              <span id="progress-bar"></span>
+            <div class="settings-content" role="group" aria-label="应用设置">
+              <section class="settings-card" aria-labelledby="settings-request-title">
+                <div class="settings-card-heading">
+                  <span class="settings-card-index" aria-hidden="true">01</span>
+                  <div>
+                    <h3 id="settings-request-title">订阅请求</h3>
+                    <p>设置订阅服务识别的客户端类型。</p>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <label class="field-label" for="user-agent-select">User-Agent</label>
+                  <select id="user-agent-select" class="select-input settings-control">
+                    <option value="auto">自动识别（推荐）</option>
+                    <option value="nekobox">NekoBox / Clash Meta</option>
+                    <option value="sing-box">sing-box</option>
+                    <option value="clash">Clash Meta</option>
+                    <option value="v2rayn">v2rayN</option>
+                    <option value="custom">自定义</option>
+                  </select>
+                  <input
+                    id="custom-user-agent"
+                    class="text-input settings-control custom-user-agent"
+                    type="text"
+                    maxlength="512"
+                    spellcheck="false"
+                    autocomplete="off"
+                    placeholder="例如：MyClient/1.0"
+                    hidden
+                  />
+                  <span class="settings-help">自动识别失败时会尝试常见客户端标识。</span>
+                </div>
+              </section>
+
+              <section class="settings-card" aria-labelledby="settings-limits-title">
+                <div class="settings-card-heading">
+                  <span class="settings-card-index" aria-hidden="true">02</span>
+                  <div>
+                    <h3 id="settings-limits-title">请求限制</h3>
+                    <p>限制下载体积、跳转次数和同时请求数。</p>
+                  </div>
+                </div>
+                <div class="settings-limits-grid">
+                  <div class="settings-field">
+                    <label class="field-label" for="max-response-mib">响应上限（MiB）</label>
+                    <input id="max-response-mib" class="text-input number-input settings-control" type="number" min="1" max="64" step="1" value="2" inputmode="numeric" />
+                    <span class="settings-help">1–64 MiB</span>
+                  </div>
+                  <div class="settings-field">
+                    <label class="field-label" for="max-redirects">最大重定向</label>
+                    <input id="max-redirects" class="text-input number-input settings-control" type="number" min="0" max="50" step="1" value="10" inputmode="numeric" />
+                    <span class="settings-help">0–50 次</span>
+                  </div>
+                  <div class="settings-field">
+                    <label class="field-label" for="fetch-concurrency">并发请求</label>
+                    <input id="fetch-concurrency" class="text-input number-input settings-control" type="number" min="1" max="20" step="1" value="3" inputmode="numeric" aria-describedby="fetch-concurrency-note" />
+                    <span class="settings-help" id="fetch-concurrency-note">1–20 个来源</span>
+                  </div>
+                </div>
+              </section>
+
+              <div class="settings-card-pair">
+                <section class="settings-card settings-security" aria-labelledby="settings-security-title">
+                  <div class="settings-card-heading">
+                    <span class="settings-card-index" aria-hidden="true">03</span>
+                    <div>
+                      <h3 id="settings-security-title">连接安全</h3>
+                      <p>只对可信的订阅源调整这些权限。</p>
+                    </div>
+                  </div>
+                  <div class="settings-switch-list">
+                    <button class="toggle-button settings-switch" id="allow-local-network" type="button" aria-pressed="false">
+                      <span class="settings-switch-copy">
+                        <strong>允许本机及局域网</strong>
+                        <span>访问本地部署的订阅服务</span>
+                      </span>
+                      <span class="switch-track" aria-hidden="true"></span>
+                    </button>
+                    <button class="toggle-button settings-switch" id="skip-certificate-verification" type="button" aria-pressed="false">
+                      <span class="settings-switch-copy">
+                        <strong>跳过证书验证</strong>
+                        <span>忽略 HTTPS 证书错误</span>
+                      </span>
+                      <span class="switch-track" aria-hidden="true"></span>
+                    </button>
+                    <p class="option-note security-note" id="skip-certificate-note" hidden>证书校验已关闭，请确认订阅源可信。</p>
+                  </div>
+                </section>
+
+                <section class="settings-card settings-output" aria-labelledby="settings-output-title">
+                  <div class="settings-card-heading">
+                    <span class="settings-card-index" aria-hidden="true">04</span>
+                    <div>
+                      <h3 id="settings-output-title">输出规则</h3>
+                      <p>控制生成结果的完整度与重复项。</p>
+                    </div>
+                  </div>
+                  <div class="settings-switch-list">
+                    <button class="toggle-button settings-switch" id="deduplicate-output" type="button" aria-pressed="true">
+                      <span class="settings-switch-copy">
+                        <strong>自动去重</strong>
+                        <span>合并重复的节点结果</span>
+                      </span>
+                      <span class="switch-track" aria-hidden="true"></span>
+                    </button>
+                    <button class="toggle-button settings-switch" id="include-lossy-output" type="button" aria-pressed="false">
+                      <span class="settings-switch-copy">
+                        <strong>包含有损结果</strong>
+                        <span>输出无法完整表达的节点</span>
+                      </span>
+                      <span class="switch-track" aria-hidden="true"></span>
+                    </button>
+                  </div>
+                </section>
+              </div>
             </div>
 
-            <div class="processing-empty" id="processing-empty">
-              <strong>等待开始</strong>
+            <div class="processing-progress">
+              <div class="progress-copy" id="progress-copy" aria-live="polite">准备就绪</div>
+              <div class="progress-track" aria-hidden="true">
+                <span id="progress-bar"></span>
+              </div>
             </div>
-
           </section>
 
           <div class="panel-resizer" data-resizer="1" role="separator" aria-orientation="vertical" aria-label="调整处理和输出版块宽度" title="拖动调整宽度，双击恢复均分" tabindex="0"></div>
@@ -95,7 +206,6 @@
                   <span><strong id="source-count">0</strong> 来源</span>
                   <span><strong id="duplicate-count">0</strong> 重复</span>
                 </div>
-                <button class="text-button settings-button" id="output-settings-button" type="button" data-settings-view="output">设置</button>
                 <button class="text-button detail-button" id="output-detail-button" type="button" aria-expanded="false" aria-controls="output-panel">查看详情</button>
               </div>
             </div>
@@ -139,112 +249,6 @@
       </section>
     </div>
 
-    <div class="settings-backdrop" id="settings-backdrop" hidden></div>
-    <section class="settings-dialog" id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
-      <div class="settings-heading">
-        <strong id="settings-title">输入设置</strong>
-        <button class="text-button" id="settings-close-button" type="button">关闭</button>
-      </div>
-      <div class="settings-pane" data-settings-view="input">
-        <label class="field-label" for="user-agent-select">User-Agent</label>
-        <select id="user-agent-select" class="select-input">
-          <option value="auto">自动识别（推荐）</option>
-          <option value="nekobox">NekoBox / Clash Meta</option>
-          <option value="sing-box">sing-box</option>
-          <option value="clash">Clash Meta</option>
-          <option value="v2rayn">v2rayN</option>
-          <option value="custom">自定义</option>
-        </select>
-        <input
-          id="custom-user-agent"
-          class="text-input"
-          type="text"
-          maxlength="512"
-          spellcheck="false"
-          autocomplete="off"
-          placeholder="例如：MyClient/1.0"
-          hidden
-        />
-        <button class="toggle-button" id="allow-local-network" type="button" aria-pressed="false">
-          <span class="toggle-indicator" aria-hidden="true"></span>
-          允许本机及局域网订阅
-        </button>
-        <p class="option-note security-note">默认阻止指向回环、内网和特殊地址的订阅请求。仅在需要访问可信的本地订阅服务时开启。</p>
-        <div class="settings-divider" aria-hidden="true"></div>
-        <div class="security-option">
-          <button
-            class="toggle-button"
-            id="skip-certificate-verification"
-            type="button"
-            aria-pressed="false"
-          >
-            <span class="toggle-indicator" aria-hidden="true"></span>
-            跳过证书验证
-          </button>
-          <p class="option-note security-note" id="skip-certificate-note" hidden>
-            已关闭 TLS 证书校验，仅对证书异常或自签名的可信订阅源使用。
-          </p>
-        </div>
-      </div>
-      <div class="settings-pane" data-settings-view="processing" hidden>
-        <div class="settings-limits">
-          <span class="settings-section-label">请求限制</span>
-          <div class="settings-grid">
-            <div class="settings-field">
-              <label class="field-label" for="max-response-mib">响应上限（1–64 MiB）</label>
-              <input
-                id="max-response-mib"
-                class="text-input number-input"
-                type="number"
-                min="1"
-                max="64"
-                step="1"
-                value="2"
-                inputmode="numeric"
-              />
-            </div>
-            <div class="settings-field">
-              <label class="field-label" for="max-redirects">最大重定向（0–50）</label>
-              <input
-                id="max-redirects"
-                class="text-input number-input"
-                type="number"
-                min="0"
-                max="50"
-                step="1"
-                value="10"
-                inputmode="numeric"
-              />
-            </div>
-            <div class="settings-field settings-field-wide">
-              <label class="field-label" for="fetch-concurrency">并发数量（1–20）</label>
-              <input
-                id="fetch-concurrency"
-                class="text-input number-input"
-                type="number"
-                min="1"
-                max="20"
-                step="1"
-                value="3"
-                inputmode="numeric"
-                aria-describedby="fetch-concurrency-note"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="settings-pane" data-settings-view="output" hidden>
-        <button class="toggle-button" id="deduplicate-output" type="button" aria-pressed="true">
-          <span class="toggle-indicator" aria-hidden="true"></span>
-          自动去重
-        </button>
-        <button class="toggle-button" id="include-lossy-output" type="button" aria-pressed="false">
-          <span class="toggle-indicator" aria-hidden="true"></span>
-          输出有损转换
-        </button>
-        <p class="option-note">默认只输出完整转换。开启后，有字段无法在 URI 中表达的节点也会输出，并在处理日志中列出损失字段。</p>
-      </div>
-    </section>
     <div class="detail-backdrop" id="detail-backdrop" hidden></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
