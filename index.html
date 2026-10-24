@@ -272,6 +272,38 @@
       </section>
     </div>
 
+    <dialog class="output-rule-dialog" id="output-rule-dialog" aria-labelledby="output-rule-dialog-title">
+      <div class="output-rule-dialog-content">
+        <header class="output-rule-dialog-header">
+          <div>
+            <h2 id="output-rule-dialog-title">设置匹配规则</h2>
+            <p>节点类型与地区条件同时匹配；各自选中的多个条件按“或”匹配。</p>
+          </div>
+          <button class="output-rule-dialog-close" id="output-rule-dialog-close" type="button" aria-label="关闭匹配规则设置">×</button>
+        </header>
+        <div class="output-rule-dialog-body">
+          <section class="output-rule-section" aria-labelledby="output-rule-protocol-title">
+            <div class="output-rule-section-heading">
+              <h3 id="output-rule-protocol-title">节点类型</h3>
+              <span id="output-rule-protocol-summary">未选择</span>
+            </div>
+            <div class="output-group-protocol-options output-rule-options" id="output-rule-protocol-options"></div>
+          </section>
+          <section class="output-rule-section" aria-labelledby="output-rule-region-title">
+            <div class="output-rule-section-heading">
+              <h3 id="output-rule-region-title">地区组</h3>
+              <span id="output-rule-region-summary">全部地区</span>
+            </div>
+            <div class="output-group-protocol-options output-rule-options" id="output-rule-region-options"></div>
+          </section>
+        </div>
+        <footer class="output-rule-dialog-actions">
+          <button class="secondary-button" id="output-rule-dialog-cancel" type="button">取消</button>
+          <button class="primary-button compact" id="output-rule-dialog-save" type="button">保存规则</button>
+        </footer>
+      </div>
+    </dialog>
+
     <div class="detail-backdrop" id="detail-backdrop" hidden></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>

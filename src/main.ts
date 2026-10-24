@@ -365,6 +365,15 @@ const dom = {
   outputGroupList: getElement<HTMLDivElement>("output-group-list"),
   outputGroupEmpty: getElement<HTMLDivElement>("output-group-empty"),
   addOutputGroupButton: getElement<HTMLButtonElement>("add-output-group"),
+  outputRuleDialog: getElement<HTMLDialogElement>("output-rule-dialog"),
+  outputRuleDialogTitle: getElement<HTMLHeadingElement>("output-rule-dialog-title"),
+  outputRuleDialogClose: getElement<HTMLButtonElement>("output-rule-dialog-close"),
+  outputRuleDialogCancel: getElement<HTMLButtonElement>("output-rule-dialog-cancel"),
+  outputRuleDialogSave: getElement<HTMLButtonElement>("output-rule-dialog-save"),
+  outputRuleProtocolOptions: getElement<HTMLDivElement>("output-rule-protocol-options"),
+  outputRuleProtocolSummary: getElement<HTMLSpanElement>("output-rule-protocol-summary"),
+  outputRuleRegionOptions: getElement<HTMLDivElement>("output-rule-region-options"),
+  outputRuleRegionSummary: getElement<HTMLSpanElement>("output-rule-region-summary"),
   outputOverview: getElement<HTMLSpanElement>("output-overview"),
   nodeCount: getElement<HTMLElement>("node-count"),
   sourceCount: getElement<HTMLElement>("source-count"),
@@ -415,6 +424,9 @@ let regionLookupMethods = loadRegionLookupMethods();
 let geoIpDatabasePath = loadGeoIpDatabasePath();
 let regionLookupState: "idle" | "running" | "done" | "error" = "idle";
 let regionLookupRunId = 0;
+let activeOutputRuleGroupId: string | null = null;
+let draftMatchProtocols: ProxyProtocol[] = [];
+let draftMatchCountries: string[] = [];
 let duplicateCount = 0;
 let activeSourceDocuments: SourceDocument[] = [];
 let conversionAbort: AbortController | null = null;
@@ -817,6 +829,111 @@ function groupResultEmptyText(group: OutputGroup): string {
   return "等待转换结果";
 }
 
+function availableOutputRegionCodes(group: OutputGroup): string[] {
+  return [...new Set([
+    ...group.matchCountries,
+    ...outputEntries.map(entry => entry.countryCode ?? UNKNOWN_REGION_CODE),
+  ])].sort((left, right) => {
+    if (left === UNKNOWN_REGION_CODE) return 1;
+    if (right === UNKNOWN_REGION_CODE) return -1;
+    return countryNameForCode(left).localeCompare(countryNameForCode(right), "zh-CN");
+  });
+}
+
+function updateOutputRuleDialogSummaries() {
+  dom.outputRuleProtocolSummary.textContent = draftMatchProtocols.length
+    ? `已选 ${draftMatchProtocols.length} 种`
+    : "未选择";
+  dom.outputRuleRegionSummary.textContent = draftMatchCountries.length
+    ? `已选 ${draftMatchCountries.length} 个地区`
+    : "全部地区";
+}
+
+function renderOutputRuleDialogOptions(group: OutputGroup) {
+  dom.outputRuleProtocolOptions.replaceChildren();
+  for (const item of OUTPUT_PROTOCOLS) {
+    const optionLabel = document.createElement("label");
+    optionLabel.className = "output-group-protocol-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = item.value;
+    checkbox.checked = draftMatchProtocols.includes(item.value);
+    checkbox.setAttribute("aria-label", `节点类型：${item.label}`);
+    const optionName = document.createElement("span");
+    optionName.textContent = item.label;
+    checkbox.addEventListener("change", () => {
+      const selected = new Set(draftMatchProtocols);
+      if (checkbox.checked) selected.add(item.value);
+      else selected.delete(item.value);
+      draftMatchProtocols = OUTPUT_PROTOCOLS
+        .map(protocol => protocol.value)
+        .filter(protocol => selected.has(protocol));
+      updateOutputRuleDialogSummaries();
+    });
+    optionLabel.append(checkbox, optionName);
+    dom.outputRuleProtocolOptions.append(optionLabel);
+  }
+
+  dom.outputRuleRegionOptions.replaceChildren();
+  const regionCodes = availableOutputRegionCodes(group);
+  if (regionCodes.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "output-region-empty";
+    empty.textContent = "完成节点转换后，这里会显示识别到的地区。";
+    dom.outputRuleRegionOptions.append(empty);
+  }
+  for (const code of regionCodes) {
+    const optionLabel = document.createElement("label");
+    optionLabel.className = "output-group-protocol-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = code;
+    checkbox.checked = draftMatchCountries.includes(code);
+    const regionName = countryNameForCode(code);
+    checkbox.setAttribute("aria-label", `地区：${regionName}`);
+    const optionName = document.createElement("span");
+    optionName.textContent = `${regionName} · ${code}`;
+    checkbox.addEventListener("change", () => {
+      const selected = new Set(draftMatchCountries);
+      if (checkbox.checked) selected.add(code);
+      else selected.delete(code);
+      draftMatchCountries = regionCodes.filter(regionCode => selected.has(regionCode));
+      updateOutputRuleDialogSummaries();
+    });
+    optionLabel.append(checkbox, optionName);
+    dom.outputRuleRegionOptions.append(optionLabel);
+  }
+  updateOutputRuleDialogSummaries();
+}
+
+function openOutputRuleDialog(groupId: string) {
+  const group = outputGroups.find(item => item.id === groupId);
+  if (!group || dom.outputRuleDialog.open) return;
+  activeOutputRuleGroupId = group.id;
+  draftMatchProtocols = [...group.matchProtocols];
+  draftMatchCountries = [...group.matchCountries];
+  dom.outputRuleDialogTitle.textContent = `设置“${group.name}”的匹配规则`;
+  renderOutputRuleDialogOptions(group);
+  dom.outputRuleDialog.showModal();
+}
+
+function saveOutputRuleDialog() {
+  const group = outputGroups.find(item => item.id === activeOutputRuleGroupId);
+  if (!group) {
+    dom.outputRuleDialog.close("cancel");
+    return;
+  }
+  group.matchProtocols = [...draftMatchProtocols];
+  group.matchCountries = [...draftMatchCountries];
+  saveOutputGroups();
+  const groupId = group.id;
+  dom.outputRuleDialog.close("save");
+  renderOutputGroups();
+  const renderedCard = Array.from(dom.outputGroupList.querySelectorAll<HTMLElement>("[data-group-id]"))
+    .find(element => element.dataset.groupId === groupId);
+  renderedCard?.querySelector<HTMLButtonElement>(".output-group-rule-button")?.focus();
+}
+
 function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
   const uris = getOutputGroupUris(group);
   const card = document.createElement("article");
@@ -855,127 +972,19 @@ function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
   });
   heading.append(number, name, remove);
 
-  const rule = document.createElement("div");
-  rule.className = "output-group-rule";
+  const ruleButton = document.createElement("button");
+  ruleButton.className = "output-group-rule-button";
+  ruleButton.type = "button";
+  ruleButton.setAttribute("aria-haspopup", "dialog");
+  ruleButton.setAttribute("aria-label", `设置 ${group.name} 的匹配规则`);
+  const ruleIcon = document.createElement("span");
+  ruleIcon.className = "output-group-rule-button-icon";
+  ruleIcon.setAttribute("aria-hidden", "true");
+  ruleIcon.textContent = "⚙";
   const ruleLabel = document.createElement("span");
-  ruleLabel.className = "output-group-rule-label";
   ruleLabel.textContent = "匹配规则";
-
-  const typePicker = document.createElement("details");
-  typePicker.className = "output-group-types";
-  const summary = document.createElement("summary");
-  const summaryLabel = document.createElement("span");
-  summaryLabel.className = "output-group-rule-description";
-  summaryLabel.textContent = "节点类型";
-  const selectedTypes = document.createElement("span");
-  selectedTypes.className = "output-group-selected-types";
-  const updateSelectedTypeLabel = () => {
-    const labels = OUTPUT_PROTOCOLS
-      .filter(item => group.matchProtocols.includes(item.value))
-      .map(item => item.label);
-    selectedTypes.textContent = labels.length ? labels.join("、") : "未选择";
-  };
-  updateSelectedTypeLabel();
-  summary.append(summaryLabel, selectedTypes);
-
-  const options = document.createElement("div");
-  options.className = "output-group-protocol-options";
-  for (const item of OUTPUT_PROTOCOLS) {
-    const optionLabel = document.createElement("label");
-    optionLabel.className = "output-group-protocol-option";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.value = item.value;
-    checkbox.checked = group.matchProtocols.includes(item.value);
-    checkbox.setAttribute("aria-label", `${group.name}：${item.label}`);
-    const optionName = document.createElement("span");
-    optionName.textContent = item.label;
-    checkbox.addEventListener("change", () => {
-      const wasOpen = typePicker.open;
-      const focusedProtocol = checkbox.value;
-      const selected = new Set(group.matchProtocols);
-      if (checkbox.checked) selected.add(item.value);
-      else selected.delete(item.value);
-      group.matchProtocols = OUTPUT_PROTOCOLS
-        .map(protocolOption => protocolOption.value)
-        .filter(protocolValue => selected.has(protocolValue));
-      saveOutputGroups();
-      renderOutputGroups();
-      const renderedCard = Array.from(dom.outputGroupList.querySelectorAll<HTMLElement>("[data-group-id]"))
-        .find(element => element.dataset.groupId === group.id);
-      const renderedPicker = renderedCard?.querySelector<HTMLDetailsElement>(".output-group-types");
-      if (renderedPicker) renderedPicker.open = wasOpen;
-      const renderedCheckbox = Array.from(renderedPicker?.querySelectorAll<HTMLInputElement>("input[type=checkbox]") ?? [])
-        .find(element => element.value === focusedProtocol);
-      renderedCheckbox?.focus();
-    });
-    optionLabel.append(checkbox, optionName);
-    options.append(optionLabel);
-  }
-  typePicker.append(summary, options);
-
-  const regionPicker = document.createElement("details");
-  regionPicker.className = "output-group-types output-group-regions";
-  const regionSummary = document.createElement("summary");
-  const regionLabel = document.createElement("span");
-  regionLabel.className = "output-group-rule-description";
-  regionLabel.textContent = "地区组";
-  const selectedRegions = document.createElement("span");
-  selectedRegions.className = "output-group-selected-types";
-  selectedRegions.textContent = group.matchCountries.length
-    ? group.matchCountries.map(countryNameForCode).join("、")
-    : "全部地区";
-  regionSummary.append(regionLabel, selectedRegions);
-
-  const regionOptions = document.createElement("div");
-  regionOptions.className = "output-group-protocol-options";
-  const availableRegionCodes = [...new Set([
-    ...group.matchCountries,
-    ...outputEntries.map(entry => entry.countryCode ?? UNKNOWN_REGION_CODE),
-  ])]
-    .sort((left, right) => {
-      if (left === UNKNOWN_REGION_CODE) return 1;
-      if (right === UNKNOWN_REGION_CODE) return -1;
-      return countryNameForCode(left).localeCompare(countryNameForCode(right), "zh-CN");
-    });
-  if (availableRegionCodes.length === 0) {
-    const empty = document.createElement("span");
-    empty.className = "output-region-empty";
-    empty.textContent = regionLookupState === "running" ? "正在查询地区…" : "转换节点后显示可选地区";
-    regionOptions.append(empty);
-  }
-  for (const code of availableRegionCodes) {
-    const optionLabel = document.createElement("label");
-    optionLabel.className = "output-group-protocol-option";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.value = code;
-    checkbox.checked = group.matchCountries.includes(code);
-    const regionName = countryNameForCode(code);
-    checkbox.setAttribute("aria-label", `${group.name}：${regionName}`);
-    const optionName = document.createElement("span");
-    optionName.textContent = `${regionName} · ${code}`;
-    checkbox.addEventListener("change", () => {
-      const wasOpen = regionPicker.open;
-      const selected = new Set(group.matchCountries);
-      if (checkbox.checked) selected.add(code);
-      else selected.delete(code);
-      group.matchCountries = availableRegionCodes.filter(regionCode => selected.has(regionCode));
-      saveOutputGroups();
-      renderOutputGroups();
-      const renderedCard = Array.from(dom.outputGroupList.querySelectorAll<HTMLElement>("[data-group-id]"))
-        .find(element => element.dataset.groupId === group.id);
-      const renderedPicker = renderedCard?.querySelector<HTMLDetailsElement>(".output-group-regions");
-      if (renderedPicker) renderedPicker.open = wasOpen;
-      const renderedCheckbox = Array.from(renderedPicker?.querySelectorAll<HTMLInputElement>("input[type=checkbox]") ?? [])
-        .find(element => element.value === code);
-      renderedCheckbox?.focus();
-    });
-    optionLabel.append(checkbox, optionName);
-    regionOptions.append(optionLabel);
-  }
-  regionPicker.append(regionSummary, regionOptions);
-  rule.append(ruleLabel, typePicker, regionPicker);
+  ruleButton.append(ruleIcon, ruleLabel);
+  ruleButton.addEventListener("click", () => openOutputRuleDialog(group.id));
   const resultHeading = document.createElement("div");
   resultHeading.className = "output-group-result-heading";
   const resultTitle = document.createElement("strong");
@@ -1014,7 +1023,7 @@ function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
   saveGroup.addEventListener("click", () => void saveOutputGroup(group.id));
   actions.append(copy, saveGroup);
 
-  card.append(heading, rule, resultHeading, output, empty, actions);
+  card.append(heading, ruleButton, resultHeading, output, empty, actions);
   return card;
 }
 
@@ -1645,6 +1654,15 @@ function bindEvents() {
   dom.clearLogButton.addEventListener("click", clearLog);
   dom.importFileButton.addEventListener("click", () => void importFile());
   dom.addOutputGroupButton.addEventListener("click", addOutputGroup);
+  dom.outputRuleDialogClose.addEventListener("click", () => dom.outputRuleDialog.close("cancel"));
+  dom.outputRuleDialogCancel.addEventListener("click", () => dom.outputRuleDialog.close("cancel"));
+  dom.outputRuleDialogSave.addEventListener("click", saveOutputRuleDialog);
+  dom.outputRuleDialog.addEventListener("click", event => {
+    if (event.target === dom.outputRuleDialog) dom.outputRuleDialog.close("cancel");
+  });
+  dom.outputRuleDialog.addEventListener("close", () => {
+    activeOutputRuleGroupId = null;
+  });
   dom.chooseGeoIpDatabaseButton.addEventListener("click", () => void chooseGeoIpDatabase());
   dom.clearGeoIpDatabaseButton.addEventListener("click", clearGeoIpDatabase);
   dom.copyButton.addEventListener("click", () => void copyAll());

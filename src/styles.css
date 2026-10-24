@@ -1089,6 +1089,155 @@ body.resizing-panels {
   border-color: rgba(255, 125, 141, 0.2);
 }
 
+.output-group-rule-button {
+  display: flex;
+  min-height: 34px;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.output-group-rule-button:hover {
+  color: var(--accent-bright);
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
+}
+
+.output-group-rule-button-icon {
+  color: var(--accent-bright);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.output-rule-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-width: 520px;
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.output-rule-dialog::backdrop {
+  background: rgba(3, 10, 20, 0.62);
+  backdrop-filter: blur(5px);
+}
+
+.output-rule-dialog-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 34px);
+}
+
+.output-rule-dialog-header {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.output-rule-dialog-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.output-rule-dialog-header p {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.output-rule-dialog-close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.output-rule-dialog-close:hover {
+  color: var(--text);
+  background: var(--surface-soft);
+  border-color: var(--border);
+}
+
+.output-rule-dialog-body {
+  display: grid;
+  gap: 18px;
+  min-height: 0;
+  padding: 18px 22px;
+  overflow-y: auto;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.output-rule-section {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.output-rule-section-heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.output-rule-section-heading h3 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.output-rule-section-heading span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.output-rule-dialog-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.output-rule-dialog-actions .primary-button,
+.output-rule-dialog-actions .secondary-button {
+  min-height: 34px;
+  padding: 0 13px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+
 .output-group-rule {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1182,6 +1331,14 @@ body.resizing-panels {
   scrollbar-width: thin;
 }
 
+.output-rule-options {
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  max-height: 220px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
 .output-region-empty {
   grid-column: 1 / -1;
   padding: 7px 4px;
@@ -1216,6 +1373,12 @@ body.resizing-panels {
   height: 13px;
   margin: 0;
   accent-color: var(--accent);
+}
+
+.output-rule-options .output-group-protocol-option {
+  min-height: 36px;
+  padding: 7px 9px;
+  font-size: 11px;
 }
 
 .output-group-result-heading {
