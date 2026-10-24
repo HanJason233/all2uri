@@ -26,6 +26,11 @@
   },
   "bundle": {
     "active": true,
+    "resources": [
+      "resources/geoip.dat",
+      "resources/GEOIP-NOTICE.txt",
+      "resources/GEOIP-LICENSE.txt"
+    ],
     "shortDescription": "all2uri",
     "longDescription": "all2uri",
     "targets": ["nsis"],

@@ -20,6 +20,8 @@ use tokio::net::lookup_host;
 use tokio::sync::Notify;
 use url::Url;
 
+mod region_lookup;
+
 const DEFAULT_MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const MIN_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_RESPONSE_BYTES_LIMIT: usize = 64 * 1024 * 1024;
@@ -696,7 +698,13 @@ pub fn run() {
     tauri::Builder::default()
         .manage(FetchCancellationRegistry::default())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![fetch_subscription, cancel_subscription, read_text_file, save_text_file])
+        .invoke_handler(tauri::generate_handler![
+            fetch_subscription,
+            cancel_subscription,
+            read_text_file,
+            save_text_file,
+            region_lookup::lookup_node_regions
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

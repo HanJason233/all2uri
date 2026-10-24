@@ -21,10 +21,11 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 reqwest = { version = "0.12", features = ["gzip", "brotli", "deflate"] }
 url = "2.5.8"
 percent-encoding = "2.3.2"
-tokio = { version = "1", features = ["macros", "net", "sync"] }
+tokio = { version = "1", features = ["macros", "net", "rt", "sync"] }
 
 [dev-dependencies]
 rcgen = "0.14"

@@ -1,0 +1,12 @@
+内置 GeoIP 数据库
+
+文件：geoip.dat
+下载日期：2026-10-24
+上游项目：https://github.com/Loyalsoldier/v2ray-rules-dat
+下载地址：https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+备用地址：https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat
+SHA-256：a6271d3c96361d96156e6d3f7cf1550ef21b00d2f951deb772f464db91e89ac5
+
+上游说明该 GeoIP 数据基于 MaxMind GeoLite2 Country CSV 和中国运营商 IP 数据生成。
+本产品包含由 MaxMind 创建的 GeoLite2 数据，来源：https://www.maxmind.com
+上游项目许可证见同目录 GEOIP-LICENSE.txt。

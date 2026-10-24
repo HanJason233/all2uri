@@ -5,6 +5,15 @@ import { convertSourcesInWorker } from "./core/worker-client.ts";
 import { diagnostic } from "./core/diagnostics/index.ts";
 import type { Diagnostic } from "./core/diagnostics/index.ts";
 import type { ProxyProtocol } from "./core/model/proxy-node.ts";
+import {
+  countryCodeFromNodeName,
+  countryNameForCode,
+  DEFAULT_REGION_LOOKUP_METHODS,
+  normalizeRegionCode,
+  REGION_LOOKUP_OPTIONS,
+  UNKNOWN_REGION_CODE,
+} from "./core/location/region.ts";
+import type { RegionLookupMethod } from "./core/location/region.ts";
 import type { ConversionResult, SourceDocument } from "./core/pipeline.ts";
 
 interface FetchedSubscription {
@@ -25,8 +34,12 @@ interface FetchFailure {
 type SourceState = "pending" | "success" | "error";
 type ProcessingState = "idle" | "running" | "done" | "warning" | "error";
 interface CategorizedOutput {
+  id: string;
+  name: string;
+  server: string;
   protocol: ProxyProtocol;
   uri: string;
+  countryCode: string | null;
 }
 
 interface OutputGroup {
@@ -34,6 +47,7 @@ interface OutputGroup {
   name: string;
   // 组内按任一已选节点类型匹配；不同分组独立计算，允许重复命中。
   matchProtocols: ProxyProtocol[];
+  matchCountries: string[];
 }
 
 type SourceKind = "local" | "remote";
@@ -77,9 +91,11 @@ const OUTPUT_PROTOCOLS: Array<{ value: ProxyProtocol; label: string }> = [
 ];
 const OUTPUT_GROUPS_STORAGE_KEY = "all2uri.output-groups";
 const LEGACY_CATEGORY_RULES_STORAGE_KEY = "all2uri.output-category-rules";
+const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
+const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
 const DEFAULT_OUTPUT_GROUPS: OutputGroup[] = [
-  { id: "default-vless", name: "VLESS", matchProtocols: ["vless"] },
-  { id: "default-vmess", name: "VMess", matchProtocols: ["vmess"] },
+  { id: "default-vless", name: "VLESS", matchProtocols: ["vless"], matchCountries: [] },
+  { id: "default-vmess", name: "VMess", matchProtocols: ["vmess"], matchCountries: [] },
 ];
 const USER_AGENT_PRESETS: Record<string, string> = {
   nekobox: "NekoBox/Android/1.4.2 (Prefer ClashMeta Format)",
@@ -112,6 +128,29 @@ function isProxyProtocol(value: unknown): value is ProxyProtocol {
   return typeof value === "string" && OUTPUT_PROTOCOLS.some(item => item.value === value);
 }
 
+function isRegionLookupMethod(value: unknown): value is RegionLookupMethod {
+  return typeof value === "string" && REGION_LOOKUP_OPTIONS.some(item => item.value === value);
+}
+
+function loadRegionLookupMethods(): RegionLookupMethod[] {
+  try {
+    const stored = window.localStorage.getItem(REGION_LOOKUP_METHODS_STORAGE_KEY);
+    if (stored === null) return [...DEFAULT_REGION_LOOKUP_METHODS];
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed) ? [...new Set(parsed.filter(isRegionLookupMethod))] : [...DEFAULT_REGION_LOOKUP_METHODS];
+  } catch {
+    return [...DEFAULT_REGION_LOOKUP_METHODS];
+  }
+}
+
+function loadGeoIpDatabasePath(): string {
+  try {
+    return window.localStorage.getItem(GEOIP_DATABASE_PATH_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 function loadOutputGroups(): OutputGroup[] {
   try {
     const storedGroups = window.localStorage.getItem(OUTPUT_GROUPS_STORAGE_KEY);
@@ -126,12 +165,16 @@ function loadOutputGroups(): OutputGroup[] {
           ? candidate.matchProtocols
           : [candidate.matchProtocol];
         const matchProtocols = [...new Set(storedProtocols.filter(isProxyProtocol))];
+        const matchCountries = Array.isArray(candidate.matchCountries)
+          ? [...new Set(candidate.matchCountries.map(normalizeRegionCode).filter((code): code is string => code !== null))]
+          : [];
         groups.push({
           id: typeof candidate.id === "string" && candidate.id ? candidate.id : createOutputGroupId(),
           name: typeof candidate.name === "string" && candidate.name.trim()
             ? candidate.name.trim().slice(0, 60)
             : matchProtocols.length ? getProtocolLabel(matchProtocols[0]) : "新分组",
           matchProtocols,
+          matchCountries,
         });
       }
       return groups;
@@ -145,6 +188,7 @@ function loadOutputGroups(): OutputGroup[] {
           id: `migrated-${index}-${protocol}`,
           name: getProtocolLabel(protocol),
           matchProtocols: [protocol],
+          matchCountries: [],
         }));
       }
     }
@@ -160,6 +204,129 @@ function saveOutputGroups() {
   } catch {
     // 分组仍可在当前会话中使用；存储不可用时忽略持久化错误。
   }
+}
+
+function saveRegionLookupMethods() {
+  try {
+    window.localStorage.setItem(REGION_LOOKUP_METHODS_STORAGE_KEY, JSON.stringify(regionLookupMethods));
+  } catch {
+    // 查询规则仍可在当前会话中使用；存储不可用时忽略持久化错误。
+  }
+}
+
+function updateRegionLookupMethods(methods: RegionLookupMethod[]) {
+  regionLookupMethods = [...new Set(methods)];
+  saveRegionLookupMethods();
+  renderRegionLookupSettings();
+  if (!running && outputEntries.length > 0) void enrichOutputRegions();
+}
+
+function renderRegionLookupSettings() {
+  dom.regionLookupMethods.replaceChildren();
+  const orderedOptions = [
+    ...regionLookupMethods.map(method => REGION_LOOKUP_OPTIONS.find(option => option.value === method)!).filter(Boolean),
+    ...REGION_LOOKUP_OPTIONS.filter(option => !regionLookupMethods.includes(option.value)),
+  ];
+
+  for (const option of orderedOptions) {
+    const priority = regionLookupMethods.indexOf(option.value);
+    const row = document.createElement("div");
+    row.className = "region-lookup-method-row";
+
+    const toggle = document.createElement("button");
+    toggle.className = "toggle-button settings-switch region-lookup-method-toggle";
+    toggle.type = "button";
+    toggle.setAttribute("aria-pressed", String(priority >= 0));
+    toggle.setAttribute("aria-label", `${priority >= 0 ? "停用" : "启用"}${option.title}`);
+    const copy = document.createElement("span");
+    copy.className = "settings-switch-copy";
+    const title = document.createElement("strong");
+    title.textContent = option.title;
+    const description = document.createElement("span");
+    description.textContent = option.description;
+    const track = document.createElement("span");
+    track.className = "switch-track";
+    track.setAttribute("aria-hidden", "true");
+    copy.append(title, description);
+    toggle.append(copy, track);
+    toggle.addEventListener("click", () => {
+      updateRegionLookupMethods(priority >= 0
+        ? regionLookupMethods.filter(method => method !== option.value)
+        : [...regionLookupMethods, option.value]);
+    });
+
+    const priorityLabel = document.createElement("span");
+    priorityLabel.className = "region-lookup-priority";
+    priorityLabel.textContent = priority >= 0 ? `优先级 ${priority + 1}` : "已停用";
+    const moveUp = document.createElement("button");
+    moveUp.className = "region-lookup-order-button";
+    moveUp.type = "button";
+    moveUp.textContent = "↑";
+    moveUp.disabled = priority <= 0;
+    moveUp.setAttribute("aria-label", `提高${option.title}优先级`);
+    moveUp.addEventListener("click", () => {
+      if (priority <= 0) return;
+      const methods = [...regionLookupMethods];
+      [methods[priority - 1], methods[priority]] = [methods[priority], methods[priority - 1]];
+      updateRegionLookupMethods(methods);
+    });
+
+    const moveDown = document.createElement("button");
+    moveDown.className = "region-lookup-order-button";
+    moveDown.type = "button";
+    moveDown.textContent = "↓";
+    moveDown.disabled = priority < 0 || priority >= regionLookupMethods.length - 1;
+    moveDown.setAttribute("aria-label", `降低${option.title}优先级`);
+    moveDown.addEventListener("click", () => {
+      if (priority < 0 || priority >= regionLookupMethods.length - 1) return;
+      const methods = [...regionLookupMethods];
+      [methods[priority], methods[priority + 1]] = [methods[priority + 1], methods[priority]];
+      updateRegionLookupMethods(methods);
+    });
+
+    const controls = document.createElement("div");
+    controls.className = "region-lookup-order-controls";
+    controls.append(priorityLabel, moveUp, moveDown);
+    row.append(toggle, controls);
+    dom.regionLookupMethods.append(row);
+  }
+
+  const databaseName = geoIpDatabasePath.split(/[\\/]/).pop();
+  dom.geoIpDatabaseName.textContent = databaseName || "内置 geoip.dat";
+  dom.geoIpDatabaseName.title = geoIpDatabasePath || "自动使用安装包内置数据库";
+  dom.clearGeoIpDatabaseButton.disabled = !geoIpDatabasePath;
+}
+
+async function chooseGeoIpDatabase() {
+  try {
+    const selected = await open({
+      multiple: false,
+      directory: false,
+      filters: [{ name: "Xray / V2Ray GeoIP 数据库", extensions: ["dat"] }],
+    });
+    if (typeof selected !== "string") return;
+    geoIpDatabasePath = selected;
+    try {
+      window.localStorage.setItem(GEOIP_DATABASE_PATH_STORAGE_KEY, selected);
+    } catch {
+      // 数据库仍可在当前会话中使用；存储不可用时忽略持久化错误。
+    }
+    renderRegionLookupSettings();
+    if (!running && outputEntries.length > 0) void enrichOutputRegions();
+  } catch (error) {
+    showToast(failureFrom(error).message || "选择 GeoIP 数据库失败", true);
+  }
+}
+
+function clearGeoIpDatabase() {
+  geoIpDatabasePath = "";
+  try {
+    window.localStorage.removeItem(GEOIP_DATABASE_PATH_STORAGE_KEY);
+  } catch {
+    // 当前会话中仍按未选择数据库处理。
+  }
+  renderRegionLookupSettings();
+  if (!running && outputEntries.length > 0) void enrichOutputRegions();
 }
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -179,6 +346,10 @@ const dom = {
   fetchConcurrency: getElement<HTMLInputElement>("fetch-concurrency"),
   maxResponseMib: getElement<HTMLInputElement>("max-response-mib"),
   maxRedirects: getElement<HTMLInputElement>("max-redirects"),
+  regionLookupMethods: getElement<HTMLDivElement>("region-lookup-methods"),
+  geoIpDatabaseName: getElement<HTMLSpanElement>("geoip-database-name"),
+  chooseGeoIpDatabaseButton: getElement<HTMLButtonElement>("choose-geoip-database"),
+  clearGeoIpDatabaseButton: getElement<HTMLButtonElement>("clear-geoip-database"),
   deduplicateOutput: getElement<HTMLButtonElement>("deduplicate-output"),
   includeLossyOutput: getElement<HTMLButtonElement>("include-lossy-output"),
   skipCertificateVerification: getElement<HTMLButtonElement>("skip-certificate-verification"),
@@ -240,6 +411,10 @@ let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
 let outputEntries: CategorizedOutput[] = [];
 let outputGroups: OutputGroup[] = loadOutputGroups();
+let regionLookupMethods = loadRegionLookupMethods();
+let geoIpDatabasePath = loadGeoIpDatabasePath();
+let regionLookupState: "idle" | "running" | "done" | "error" = "idle";
+let regionLookupRunId = 0;
 let duplicateCount = 0;
 let activeSourceDocuments: SourceDocument[] = [];
 let conversionAbort: AbortController | null = null;
@@ -623,13 +798,20 @@ function appendConversionDiagnostics(result: ConversionResult) {
 }
 
 function getOutputGroupUris(group: OutputGroup): string[] {
-  // 多选类型之间是“或”关系，分组之间不互斥。
-  return outputEntries.filter(entry => group.matchProtocols.includes(entry.protocol)).map(entry => entry.uri);
+  return outputEntries.filter(entry => outputEntryMatchesGroup(entry, group)).map(entry => entry.uri);
+}
+
+function outputEntryMatchesGroup(entry: CategorizedOutput, group: OutputGroup): boolean {
+  if (!group.matchProtocols.includes(entry.protocol)) return false;
+  if (group.matchCountries.length === 0) return true;
+  return group.matchCountries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE);
 }
 
 function groupResultEmptyText(group: OutputGroup): string {
   if (group.matchProtocols.length === 0) return "请至少选择一个节点类型";
+  if (regionLookupState === "running") return "正在查询节点地区，完成后显示匹配结果";
   if (running) return "正在处理订阅，完成后显示匹配结果";
+  if (group.matchCountries.length > 0 && regionLookupState === "error") return "地区查询失败，请检查网络或数据库设置";
   if (outputUris.length > 0) return "当前规则没有匹配到节点";
   if (sourceResults.length > 0) return "本次转换没有可用节点";
   return "等待转换结果";
@@ -731,7 +913,69 @@ function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
     options.append(optionLabel);
   }
   typePicker.append(summary, options);
-  rule.append(ruleLabel, typePicker);
+
+  const regionPicker = document.createElement("details");
+  regionPicker.className = "output-group-types output-group-regions";
+  const regionSummary = document.createElement("summary");
+  const regionLabel = document.createElement("span");
+  regionLabel.className = "output-group-rule-description";
+  regionLabel.textContent = "地区组";
+  const selectedRegions = document.createElement("span");
+  selectedRegions.className = "output-group-selected-types";
+  selectedRegions.textContent = group.matchCountries.length
+    ? group.matchCountries.map(countryNameForCode).join("、")
+    : "全部地区";
+  regionSummary.append(regionLabel, selectedRegions);
+
+  const regionOptions = document.createElement("div");
+  regionOptions.className = "output-group-protocol-options";
+  const availableRegionCodes = [...new Set([
+    ...group.matchCountries,
+    ...outputEntries.map(entry => entry.countryCode ?? UNKNOWN_REGION_CODE),
+  ])]
+    .sort((left, right) => {
+      if (left === UNKNOWN_REGION_CODE) return 1;
+      if (right === UNKNOWN_REGION_CODE) return -1;
+      return countryNameForCode(left).localeCompare(countryNameForCode(right), "zh-CN");
+    });
+  if (availableRegionCodes.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "output-region-empty";
+    empty.textContent = regionLookupState === "running" ? "正在查询地区…" : "转换节点后显示可选地区";
+    regionOptions.append(empty);
+  }
+  for (const code of availableRegionCodes) {
+    const optionLabel = document.createElement("label");
+    optionLabel.className = "output-group-protocol-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = code;
+    checkbox.checked = group.matchCountries.includes(code);
+    const regionName = countryNameForCode(code);
+    checkbox.setAttribute("aria-label", `${group.name}：${regionName}`);
+    const optionName = document.createElement("span");
+    optionName.textContent = `${regionName} · ${code}`;
+    checkbox.addEventListener("change", () => {
+      const wasOpen = regionPicker.open;
+      const selected = new Set(group.matchCountries);
+      if (checkbox.checked) selected.add(code);
+      else selected.delete(code);
+      group.matchCountries = availableRegionCodes.filter(regionCode => selected.has(regionCode));
+      saveOutputGroups();
+      renderOutputGroups();
+      const renderedCard = Array.from(dom.outputGroupList.querySelectorAll<HTMLElement>("[data-group-id]"))
+        .find(element => element.dataset.groupId === group.id);
+      const renderedPicker = renderedCard?.querySelector<HTMLDetailsElement>(".output-group-regions");
+      if (renderedPicker) renderedPicker.open = wasOpen;
+      const renderedCheckbox = Array.from(renderedPicker?.querySelectorAll<HTMLInputElement>("input[type=checkbox]") ?? [])
+        .find(element => element.value === code);
+      renderedCheckbox?.focus();
+    });
+    optionLabel.append(checkbox, optionName);
+    regionOptions.append(optionLabel);
+  }
+  regionPicker.append(regionSummary, regionOptions);
+  rule.append(ruleLabel, typePicker, regionPicker);
   const resultHeading = document.createElement("div");
   resultHeading.className = "output-group-result-heading";
   const resultTitle = document.createElement("strong");
@@ -815,11 +1059,13 @@ function renderOutputGroups() {
     dom.outputGroupList.append(renderOutputGroup(group, index));
   }
 
-  const matchedProtocols = new Set(outputGroups.flatMap(group => group.matchProtocols));
-  const unmatched = outputEntries.filter(entry => !matchedProtocols.has(entry.protocol)).map(entry => entry.uri);
+  const unmatched = outputEntries
+    .filter(entry => !outputGroups.some(group => outputEntryMatchesGroup(entry, group)))
+    .map(entry => entry.uri);
   if (unmatched.length > 0) dom.outputGroupList.append(renderUnmatchedOutput(unmatched));
 
-  dom.outputOverview.textContent = `${outputUris.length} 个节点 · ${outputGroups.length} 个分组`;
+  const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
+  dom.outputOverview.textContent = `${outputUris.length} 个节点 · ${outputGroups.length} 个分组${regionStatus}`;
   dom.copyButton.disabled = outputUris.length === 0;
   dom.saveButton.disabled = outputUris.length === 0;
 }
@@ -833,15 +1079,79 @@ function addOutputGroup() {
     id: createOutputGroupId(),
     name: sameTypeCount ? `${baseName} ${sameTypeCount + 1}` : baseName,
     matchProtocols: [protocol],
+    matchCountries: [],
   });
   saveOutputGroups();
+  renderOutputGroups();
+}
+
+async function enrichOutputRegions() {
+  const runId = ++regionLookupRunId;
+  const entries = [...outputEntries];
+  if (entries.length === 0) {
+    regionLookupState = "idle";
+    renderOutputGroups();
+    return;
+  }
+
+  regionLookupState = regionLookupMethods.length > 0 ? "running" : "done";
+  for (const entry of entries) entry.countryCode = null;
+  renderOutputGroups();
+
+  const unresolved = new Map(entries.map(entry => [entry.id, entry]));
+  let lookupFailed = false;
+  for (const method of regionLookupMethods) {
+    if (runId !== regionLookupRunId) return;
+    if (unresolved.size === 0) break;
+
+    if (method === "NODE_NAME") {
+      for (const [id, entry] of unresolved) {
+        const countryCode = countryCodeFromNodeName(entry.name);
+        if (!countryCode) continue;
+        entry.countryCode = countryCode;
+        unresolved.delete(id);
+      }
+      continue;
+    }
+
+    const pendingEntries = [...unresolved.values()];
+    if (pendingEntries.length === 0) break;
+    try {
+      const results = await invoke<Array<{ id: string; countryCode: string | null }>>("lookup_node_regions", {
+        nodes: pendingEntries.map(({ id, server }) => ({ id, server })),
+        lookupMethod: method,
+        geoIpDatabasePath: method === "LOCAL_GEOIP" ? geoIpDatabasePath : null,
+      });
+      if (runId !== regionLookupRunId) return;
+      const resultById = new Map(results.map(result => [result.id, normalizeRegionCode(result.countryCode)]));
+      for (const [id, entry] of unresolved) {
+        const countryCode = resultById.get(id);
+        if (!countryCode) continue;
+        entry.countryCode = countryCode;
+        unresolved.delete(id);
+      }
+    } catch (error) {
+      lookupFailed = true;
+      appendLog(`${method === "LOCAL_GEOIP" ? "本地 GeoIP" : "远程地区 API"}查询失败：${failureFrom(error).message}`, true);
+    }
+  }
+
+  if (runId !== regionLookupRunId) return;
+  regionLookupState = lookupFailed ? "error" : "done";
   renderOutputGroups();
 }
 
 function aggregateResults(result: ConversionResult, logDiagnostics = true) {
   outputEntries = result.encoded
     .filter(item => item.uri && (item.status === "complete" || (shouldIncludeLossyOutput() && item.status === "lossy")))
-    .map(item => ({ protocol: item.node.protocol, uri: item.uri! }));
+    .map((item, index) => ({
+      id: `${item.node.id}-${index}`,
+      name: item.node.name,
+      server: item.node.server,
+      protocol: item.node.protocol,
+      uri: item.uri!,
+      countryCode: null,
+    }));
   outputUris = outputEntries.map(item => item.uri);
   duplicateCount = result.stats.duplicates;
   const allowed = new Set(outputUris);
@@ -873,6 +1183,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
 
   renderOutputGroups();
   if (logDiagnostics) appendConversionDiagnostics(result);
+  void enrichOutputRegions();
 }
 
 async function refreshConversion() {
@@ -1131,6 +1442,8 @@ async function startConversion() {
 
   outputUris = [];
   outputEntries = [];
+  regionLookupRunId += 1;
+  regionLookupState = "idle";
   duplicateCount = 0;
   completedSources = sourceResults.filter(source => source.state === "error").length;
 
@@ -1314,7 +1627,10 @@ async function saveOutputGroup(groupId: string) {
   if (!group) return;
   const index = outputGroups.findIndex(item => item.id === groupId) + 1;
   const protocolPart = group.matchProtocols.map(protocol => protocol).join("-") || "empty";
-  await saveUris(getOutputGroupUris(group), `${protocolPart}-${index}`, `“${group.name}”分组`);
+  const regionPart = group.matchCountries.length
+    ? `-${group.matchCountries.map(code => code === UNKNOWN_REGION_CODE ? "unknown" : code).join("-")}`
+    : "";
+  await saveUris(getOutputGroupUris(group), `${protocolPart}${regionPart}-${index}`, `“${group.name}”分组`);
 }
 
 async function saveAll() {
@@ -1329,6 +1645,8 @@ function bindEvents() {
   dom.clearLogButton.addEventListener("click", clearLog);
   dom.importFileButton.addEventListener("click", () => void importFile());
   dom.addOutputGroupButton.addEventListener("click", addOutputGroup);
+  dom.chooseGeoIpDatabaseButton.addEventListener("click", () => void chooseGeoIpDatabase());
+  dom.clearGeoIpDatabaseButton.addEventListener("click", clearGeoIpDatabase);
   dom.copyButton.addEventListener("click", () => void copyAll());
   dom.saveButton.addEventListener("click", () => void saveAll());
   document.addEventListener("keydown", event => {
@@ -1375,6 +1693,7 @@ function bindEvents() {
     if (!dom.validation.hidden) setValidation();
   });
 
+  renderRegionLookupSettings();
   renderOutputGroups();
   bindPanelResizers();
   applyPanelRatios();

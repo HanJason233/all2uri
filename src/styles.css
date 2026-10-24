@@ -499,6 +499,106 @@ body.resizing-panels {
   gap: 10px;
 }
 
+.region-lookup-methods {
+  display: grid;
+  gap: 7px;
+}
+
+.region-lookup-method-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.region-lookup-method-toggle {
+  min-height: 52px;
+}
+
+.settings-region-lookup .settings-switch[aria-pressed="true"] .switch-track {
+  background: var(--accent);
+}
+
+.region-lookup-order-controls {
+  display: grid;
+  grid-template-columns: auto 28px 28px;
+  gap: 4px;
+  align-items: center;
+}
+
+.region-lookup-priority {
+  min-width: 48px;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.region-lookup-order-button {
+  width: 28px;
+  height: 28px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.region-lookup-order-button:hover:not(:disabled) {
+  color: var(--accent-bright);
+  border-color: var(--border-strong);
+}
+
+.region-lookup-order-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.region-database-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.region-database-copy {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 3px;
+}
+
+.region-database-copy strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.region-database-copy span,
+.region-database-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.region-database-name {
+  flex: 1 1 100px;
+}
+
+.region-database-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.region-database-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 10px;
+}
+
 .settings-switch-list {
   display: grid;
   gap: 8px;
@@ -996,6 +1096,10 @@ body.resizing-panels {
   align-items: center;
 }
 
+.output-group-regions {
+  grid-column: 2;
+}
+
 .output-group-rule-label {
   color: var(--text-secondary);
   font-size: 10px;
@@ -1076,6 +1180,13 @@ body.resizing-panels {
   border-radius: 0 0 8px 8px;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
+}
+
+.output-region-empty {
+  grid-column: 1 / -1;
+  padding: 7px 4px;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .output-group-protocol-option {

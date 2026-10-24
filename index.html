@@ -183,6 +183,28 @@
               </div>
             </div>
 
+            <section class="settings-card settings-region-lookup" aria-labelledby="settings-region-lookup-title">
+              <div class="settings-card-heading">
+                <span class="settings-card-index" aria-hidden="true">05</span>
+                <div>
+                  <h3 id="settings-region-lookup-title">地区组查询</h3>
+                  <p>按优先级依次尝试查询方式，识别到地区后停止。</p>
+                </div>
+              </div>
+              <div class="region-lookup-methods" id="region-lookup-methods" role="group" aria-label="地区查询方式"></div>
+              <div class="region-database-field">
+                <div class="region-database-copy">
+                  <strong>本地 GeoIP 数据库</strong>
+                  <span>安装包内置 Xray / V2Ray geoip.dat；也可选择本地文件覆盖。</span>
+                </div>
+                <span class="region-database-name" id="geoip-database-name">内置 geoip.dat</span>
+                <div class="region-database-actions">
+                  <button class="secondary-button" id="choose-geoip-database" type="button">选择文件</button>
+                  <button class="secondary-button" id="clear-geoip-database" type="button" disabled>恢复内置</button>
+                </div>
+              </div>
+            </section>
+
             <div class="processing-progress">
               <div class="progress-copy" id="progress-copy" aria-live="polite">准备就绪</div>
               <div class="progress-track" aria-hidden="true">
@@ -213,7 +235,7 @@
             <div class="output-group-toolbar">
               <div>
                 <strong id="output-group-title">输出分组</strong>
-                <p>每组按自己的规则匹配节点，并单独生成结果。</p>
+                <p>节点类型与地区条件共同筛选；每个分组独立生成结果。</p>
               </div>
               <button class="output-group-add-button" id="add-output-group" type="button">
                 <span aria-hidden="true">+</span> 新建分组
