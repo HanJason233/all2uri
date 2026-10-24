@@ -1,7 +1,7 @@
 import { parseDocument } from "yaml";
+import { convertText } from "../pipeline.ts";
 import { map, scalar } from "./encode.ts";
-import { extractNativeNodes, safeEncode } from "./native.ts";
-import { decodeBase64, extractUris, isJsonContent, isYamlContent, subscriptionFragments } from "./text.ts";
+import { decodeBase64, extractUris, isJsonContent, isYamlContent, subscriptionFragments, subscriptionFragmentsLimited } from "./text.ts";
 
 export function normalizeRemoteUrl(value: string) {
   if (value.length > 8192 || /[\r\n]/.test(value)) return null;
@@ -13,16 +13,46 @@ export function normalizeRemoteUrl(value: string) {
 
 export function detectSubscriptionInput(value: string) {
   const urls = new Set<string>(), local: string[] = [];
-  for (const fragment of subscriptionFragments(value)) {
+  let remainingUris = 100_000;
+  let uriLimitReached = false;
+  const inputTooLarge = new TextEncoder().encode(value).byteLength > 64 * 1024 * 1024;
+  if (inputTooLarge) {
+    return {
+      urls: [] as string[], local, truncated: true, fragmentsTruncated: false, uriLimitReached: false,
+      decodedTooLarge: 0, depthLimited: false, inputTooLarge,
+    };
+  }
+  const expanded = subscriptionFragmentsLimited(value, {
+    maxDepth: 16,
+    maxFragments: 10000,
+    maxDecodedBytes: 64 * 1024 * 1024,
+  });
+  for (const fragment of expanded.fragments) {
     if (isJsonContent(fragment) || isYamlContent(fragment)) { local.push(fragment); continue; }
-    for (const uri of extractUris(fragment)) {
+    if (remainingUris <= 0) {
+      uriLimitReached = extractUris(fragment, 1).length > 0;
+      break;
+    }
+    const found = extractUris(fragment, remainingUris + 1);
+    if (found.length > remainingUris) uriLimitReached = true;
+    for (const uri of found.slice(0, remainingUris)) {
       if (/^https?:\/\//i.test(uri)) {
         const url = normalizeRemoteUrl(uri);
         if (url) urls.add(url);
       } else local.push(uri);
     }
+    remainingUris -= Math.min(found.length, remainingUris);
   }
-  return { urls: [...urls], local };
+  return {
+    urls: [...urls],
+    local,
+    truncated: expanded.truncated || uriLimitReached,
+    fragmentsTruncated: expanded.truncated,
+    uriLimitReached,
+    decodedTooLarge: expanded.decodedTooLarge,
+    depthLimited: expanded.depthLimited,
+    inputTooLarge,
+  };
 }
 
 /** 对照客户端最终 URI 解析结果，过滤没有服务器或合法端口的分享链接。 */
@@ -50,21 +80,18 @@ export function isUsableNode(uri: string): boolean {
 }
 
 export function toStandardUris(input: string | string[], options: { deduplicate?: boolean } = {}) {
-  const fragments = typeof input === "string" ? subscriptionFragments(input) : input;
-  const uris: string[] = [];
-  for (const fragment of fragments) {
-    try {
-      if (isJsonContent(fragment)) uris.push(...extractNativeNodes(JSON.parse(fragment)));
-      else if (isYamlContent(fragment)) {
-        const doc = parseDocument(fragment, { version: "1.1", uniqueKeys: true });
-        if (doc.errors.length) continue;
-        const value: unknown = doc.toJS({ maxAliasCount: 100 });
-        uris.push(...(Array.isArray(value) ? value.flatMap(item => safeEncode(map(item))) : extractNativeNodes(value)));
-      } else uris.push(...extractUris(fragment));
-    } catch { /* 一个损坏片段不能吞掉同次导入的其他来源。 */ }
+  const content = Array.isArray(input) ? input.join("\n") : input;
+  const fragments = Array.isArray(input) ? input : subscriptionFragments(input);
+  const structured = fragments.some(fragment => isJsonContent(fragment) || isYamlContent(fragment));
+  if (!structured) {
+    const direct = fragments.flatMap(fragment => extractUris(fragment)).filter(isUsableNode);
+    return options.deduplicate === false ? direct : [...new Set(direct)];
   }
-  const usableUris = uris.filter(isUsableNode);
-  return options.deduplicate === false ? usableUris : [...new Set(usableUris)];
+  const converted = convertText(content, "legacy", {
+    includeLossy: true,
+    deduplicate: false,
+  }).uris;
+  return options.deduplicate === false ? converted : [...new Set(converted)];
 }
 
 export function extractSubscriptionNodeNames(input: string) {

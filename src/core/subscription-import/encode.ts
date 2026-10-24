@@ -34,10 +34,10 @@ function put(query: Record<string, string>, key: string, value: unknown) {
 function tlsQuery(proxy: NodeMap) {
   const query: Record<string, string> = {};
   const ech = map(field(proxy, "ech-opts", "ech_opts"));
-  const enabled = bool(field(ech, "enable", "enabled"));
+  const enabled = bool(field(ech, "enable", "enabled")) ?? bool(field(proxy, "echEnabled"));
   if (enabled !== undefined) query.echEnabled = String(enabled);
-  put(query, "echConfigList", field(ech, "config"));
-  put(query, "echQueryServerName", field(ech, "query-server-name", "query_server_name"));
+  put(query, "echConfigList", field(ech, "config") ?? field(proxy, "echConfigList"));
+  put(query, "echQueryServerName", field(ech, "query-server-name", "query_server_name") ?? field(proxy, "echQueryServerName"));
   put(query, "certificate", field(proxy, "certificate", "cert"));
   const fragment = bool(field(proxy, "fragment"));
   if (fragment !== undefined) query.fragment = String(fragment);
@@ -66,7 +66,7 @@ function transport(proxy: NodeMap): Record<string, string> & { type: string } {
     }
   } else if (type === "grpc") {
     opts = map(field(proxy, "grpc-opts", "grpc_opts"));
-    put(query, "serviceName", field(opts, "grpc-service-name", "service-name"));
+    put(query, "serviceName", field(opts, "grpc-service-name", "service-name", "service_name"));
   } else if (type === "http") {
     opts = map(field(proxy, "h2-opts", "h2_opts", "http-opts", "http_opts"));
     query.path = list(field(opts, "path"))[0] || "/";
@@ -109,7 +109,7 @@ export function encodeNode(proxy: NodeMap, globalFingerprint = ""): string | nul
   const sni = text(proxy, "servername", "sni", "server_name");
   const alpn = list(field(proxy, "alpn")).join(",");
   const fingerprint = text(proxy, "client-fingerprint", "client_fingerprint");
-  const insecure = bool(field(proxy, "skip-cert-verify", "skip_cert_verify"));
+  const insecure = bool(field(proxy, "skip-cert-verify", "skip_cert_verify", "allowInsecure", "insecure"));
   const credentials = (username: string, password: string) => username ? (password ? `${username}:${password}` : username) : "";
   const addTls = () => {
     put(query, "sni", sni); put(query, "alpn", alpn); put(query, "fp", fingerprint);
@@ -120,7 +120,7 @@ export function encodeNode(proxy: NodeMap, globalFingerprint = ""): string | nul
     case "socks": case "socks5": case "socks4": case "socks4a":
       return finish(type === "socks" ? "socks5" : type, credentials(text(proxy, "username"), text(proxy, "password")));
     case "ss": {
-      const password = text(proxy, "password"), cipher = text(proxy, "cipher");
+      const password = text(proxy, "password"), cipher = text(proxy, "cipher", "method");
       if (!password || !cipher) return null;
       const plugin = text(proxy, "plugin");
       if (plugin) {
@@ -143,7 +143,7 @@ export function encodeNode(proxy: NodeMap, globalFingerprint = ""): string | nul
     case "vmess": {
       const uuid = text(proxy, "uuid"); if (!uuid) return null;
       const { type: network, xhttpOptions, ...options } = transport(proxy);
-      const data: NodeMap = { v: "2", ps: name, add: server, port: String(port), id: uuid, aid: integer(field(proxy, "alterId", "alter-id")) || 0, scy: text(proxy, "cipher") || "auto", net: network, type: "none" };
+      const data: NodeMap = { v: "2", ps: name, add: server, port: String(port), id: uuid, aid: integer(field(proxy, "alterId", "alter-id")) || 0, scy: text(proxy, "cipher") || "auto", net: network, type: text(proxy, "headerType", "header_type") || "none" };
       if (options.path) data.path = options.path;
       if (options.host) { const hosts = options.host.split(","); data.host = hosts.length === 1 ? hosts[0] : hosts; }
       if (options.serviceName) data.serviceName = options.serviceName;
@@ -192,9 +192,9 @@ export function encodeNode(proxy: NodeMap, globalFingerprint = ""): string | nul
       return finish("tuic", password ? `${uuid}:${password}` : uuid);
     }
     case "naive":
-      if (!text(proxy, "username") || !text(proxy, "password")) return null;
+      if (!text(proxy, "username", "user") || !text(proxy, "password")) return null;
       put(query, "sni", sni); if (insecure) query.allowInsecure = "1";
-      return finish("naive+https", credentials(text(proxy, "username"), text(proxy, "password")));
+      return finish("naive+https", credentials(text(proxy, "username", "user"), text(proxy, "password")));
     case "wireguard": case "wg": {
       const privateKey = text(proxy, "private-key", "private_key"), publicKey = text(proxy, "public-key", "public_key");
       if (!privateKey || !publicKey) return null;

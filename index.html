@@ -166,6 +166,11 @@
           placeholder="例如：MyClient/1.0"
           hidden
         />
+        <button class="toggle-button" id="allow-local-network" type="button" aria-pressed="false">
+          <span class="toggle-indicator" aria-hidden="true"></span>
+          允许本机及局域网订阅
+        </button>
+        <p class="option-note security-note">默认阻止指向回环、内网和特殊地址的订阅请求。仅在需要访问可信的本地订阅服务时开启。</p>
         <div class="settings-divider" aria-hidden="true"></div>
         <div class="security-option">
           <button
@@ -234,6 +239,11 @@
           <span class="toggle-indicator" aria-hidden="true"></span>
           自动去重
         </button>
+        <button class="toggle-button" id="include-lossy-output" type="button" aria-pressed="false">
+          <span class="toggle-indicator" aria-hidden="true"></span>
+          输出有损转换
+        </button>
+        <p class="option-note">默认只输出完整转换。开启后，有字段无法在 URI 中表达的节点也会输出，并在处理日志中列出损失字段。</p>
       </div>
     </section>
     <div class="detail-backdrop" id="detail-backdrop" hidden></div>

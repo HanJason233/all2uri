@@ -24,10 +24,11 @@ serde = { version = "1", features = ["derive"] }
 reqwest = { version = "0.12", features = ["gzip", "brotli", "deflate"] }
 url = "2.5.8"
 percent-encoding = "2.3.2"
+tokio = { version = "1", features = ["macros", "net", "sync"] }
 
 [dev-dependencies]
 rcgen = "0.14"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync"] }
 tokio-rustls = "0.26"
 
 

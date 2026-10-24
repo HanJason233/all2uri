@@ -44,29 +44,90 @@ export function isYamlContent(value: string) {
   return /^(?:-\s+)?[A-Za-z_][A-Za-z0-9_-]*\s*:(?:\s|$)|^-\s+\{/m.test(value);
 }
 
-export function extractUris(value: string) {
+export function extractUris(value: string, maxCount = Number.POSITIVE_INFINITY) {
   const markdown = value.replace(/\[[^\]]*\]\(([^)\s]+)\)/g, "$1");
-  return Array.from(markdown.matchAll(URI)).flatMap(({ 0: uri }) => {
+  const result: string[] = [];
+  for (const { 0: uri } of markdown.matchAll(URI)) {
+    if (result.length >= maxCount) break;
     // 普通 URL 列表可能在逗号或分号后继续，需要继续拆分。
     if (/^https?:\/\//i.test(uri)) {
-      return Array.from(uri.replace(URI_LIST_SEPARATOR, "\n").matchAll(URI), m => m[0]);
+      for (const match of uri.replace(URI_LIST_SEPARATOR, "\n").matchAll(URI)) {
+        if (result.length >= maxCount) break;
+        result.push(match[0].replace(/\\:\/\//g, "://").replace(/\\@/g, "@"));
+      }
+      continue;
     }
     // 节点 URI 的 query 本身可能包含以逗号分隔的 https 地址，不能把查询参数误拆成订阅。
-    return [uri];
-  }).map(uri => uri.replace(/\\:\/\//g, "://").replace(/\\@/g, "@"));
+    result.push(uri.replace(/\\:\/\//g, "://").replace(/\\@/g, "@"));
+  }
+  return result;
 }
 
-export function subscriptionFragments(value: string, depth = 0): string[] {
+export interface FragmentLimits {
+  maxDepth?: number;
+  maxFragments?: number;
+  maxDecodedBytes?: number;
+}
+
+export interface FragmentExpansion {
+  fragments: string[];
+  truncated: boolean;
+  decodedTooLarge: number;
+  depthLimited: boolean;
+}
+
+interface FragmentBudget {
+  maxDepth: number;
+  maxFragments: number;
+  maxDecodedBytes: number;
+  count: number;
+  truncated: boolean;
+  decodedTooLarge: number;
+  depthLimited: boolean;
+}
+
+function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function expandFragments(value: string, depth: number, budget: FragmentBudget): string[] {
   const content = value.trim().replace(/^\uFEFF/, "");
   if (!content) return [];
-  if (depth < 32) {
+  if (depth > 0 && utf8Bytes(content) > budget.maxDecodedBytes) {
+    budget.decodedTooLarge++;
+    return [];
+  }
+  if (depth < budget.maxDepth) {
     const decoded = decodedText(content);
-    if (decoded) return subscriptionFragments(decoded, depth + 1);
+    if (decoded) return expandFragments(decoded, depth + 1, budget);
+  } else if (encodedCandidate(content)) {
+    budget.depthLimited = true;
   }
   const result: string[] = [];
+  const emit = (fragment: string) => {
+    const normalized = fragment.trim();
+    if (!normalized) return;
+    if (utf8Bytes(normalized) > budget.maxDecodedBytes) {
+      budget.decodedTooLarge++;
+      return;
+    }
+    if (budget.count >= budget.maxFragments) {
+      budget.truncated = true;
+      return;
+    }
+    budget.count++;
+    result.push(normalized);
+  };
+  const emitDecoded = (decoded: string) => {
+    result.push(...expandFragments(decoded, depth + 1, budget));
+  };
   const lines = content.split(/\r\n?|\n/);
   let index = 0;
   while (index < lines.length) {
+    if (budget.count >= budget.maxFragments) {
+      budget.truncated = true;
+      break;
+    }
     const line = lines[index].trim();
     if (!line || line === "---" || line === "..." || line.startsWith("```")) { index++; continue; }
     if (isJsonContent(line)) {
@@ -93,10 +154,10 @@ export function subscriptionFragments(value: string, depth = 0): string[] {
         else index++;
         if (!complete && index < lines.length) {
           const next = lines[index].trim();
-          if (next === "---" || YAML_KEY.test(next) || extractUris(next)[0] === next || encodedCandidate(next)) break;
+          if (next === "---" || YAML_KEY.test(next) || extractUris(next, 1)[0] === next || encodedCandidate(next)) break;
         }
       } while (index < lines.length && !complete);
-      result.push(block.join("\n").trim());
+      emit(block.join("\n"));
       continue;
     }
     if (YAML_KEY.test(line) || YAML_LIST.test(line)) {
@@ -107,33 +168,67 @@ export function subscriptionFragments(value: string, depth = 0): string[] {
         const next = lines[index].trim();
         const topLevel = !/^\s/.test(lines[index]);
         if (topLevel && (next === "---" || next.startsWith("```") || isJsonContent(next) || encodedCandidate(next) ||
-          extractUris(next)[0] === next || next && !YAML_KEY.test(next) && !next.startsWith("#") && !next.startsWith("-"))) break;
+          extractUris(next, 1)[0] === next || next && !YAML_KEY.test(next) && !next.startsWith("#") && !next.startsWith("-"))) break;
       } while (true);
-      result.push(block.join("\n").trim());
+      emit(block.join("\n"));
       continue;
     }
-    if (depth < 32 && encodedCandidate(line)) {
+    if (depth < budget.maxDepth && encodedCandidate(line)) {
       let end = index + 1;
       while (end < lines.length && encodedCandidate(lines[end].trim())) end++;
       const decoded = decodedText(lines.slice(index, end).join("\n"));
-      if (decoded) { result.push(...subscriptionFragments(decoded, depth + 1)); index = end; continue; }
+      if (decoded) { emitDecoded(decoded); index = end; continue; }
       const decodedLine = decodedText(line);
-      if (decodedLine) { result.push(...subscriptionFragments(decodedLine, depth + 1)); index++; continue; }
+      if (decodedLine) { emitDecoded(decodedLine); index++; continue; }
+    } else if (encodedCandidate(line)) {
+      budget.depthLimited = true;
     }
     let start = 0;
-    if (depth < 32) {
+    if (depth < budget.maxDepth) {
       for (const match of lines[index].matchAll(ENCODED_TOKEN)) {
         const decoded = decodedText(match[0]);
         if (!decoded) continue;
         const prefix = lines[index].slice(start, match.index).trim();
-        if (prefix) result.push(prefix);
-        result.push(...subscriptionFragments(decoded, depth + 1));
+        if (prefix) emit(prefix);
+        emitDecoded(decoded);
         start = match.index + match[0].length;
       }
     }
     const rest = lines[index].slice(start).trim();
-    if (rest) result.push(rest);
+    if (rest) emit(rest);
     index++;
   }
   return result;
+}
+
+export function subscriptionFragmentsLimited(value: string, limits: FragmentLimits = {}): FragmentExpansion {
+  const budget: FragmentBudget = {
+    maxDepth: Math.max(0, limits.maxDepth ?? 32),
+    maxFragments: Math.max(0, limits.maxFragments ?? Number.POSITIVE_INFINITY),
+    maxDecodedBytes: Math.max(0, limits.maxDecodedBytes ?? Number.POSITIVE_INFINITY),
+    count: 0,
+    truncated: false,
+    decodedTooLarge: 0,
+    depthLimited: false,
+  };
+  const fragments = expandFragments(value, 0, budget);
+  return {
+    fragments,
+    truncated: budget.truncated,
+    decodedTooLarge: budget.decodedTooLarge,
+    depthLimited: budget.depthLimited,
+  };
+}
+
+export function subscriptionFragments(value: string, depth = 0): string[] {
+  const budget: FragmentBudget = {
+    maxDepth: 32,
+    maxFragments: Number.POSITIVE_INFINITY,
+    maxDecodedBytes: Number.POSITIVE_INFINITY,
+    count: 0,
+    truncated: false,
+    decodedTooLarge: 0,
+    depthLimited: false,
+  };
+  return expandFragments(value, depth, budget);
 }

@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { detectSubscriptionInput, toStandardUris } from "./core/subscription-import/index.ts";
+import { detectSubscriptionInput } from "./core/subscription-import/index.ts";
+import { convertSourcesInWorker } from "./core/worker-client.ts";
+import { diagnostic } from "./core/diagnostics/index.ts";
+import type { Diagnostic } from "./core/diagnostics/index.ts";
+import type { ConversionResult, SourceDocument } from "./core/pipeline.ts";
 
 interface FetchedSubscription {
   content: string;
@@ -24,10 +28,13 @@ type SettingsView = "input" | "processing" | "output";
 type SourceKind = "local" | "remote";
 
 interface SourceResult {
+  sourceId: string;
   kind: SourceKind;
   url: string;
   state: SourceState;
   nodes: string[];
+  content?: string;
+  diagnostics: Diagnostic[];
   bytes?: number;
   finalUrl?: string;
   usedUserAgent?: string;
@@ -40,6 +47,7 @@ const MAX_FETCH_CONCURRENCY = 20;
 const MIN_RESPONSE_MIB = 1;
 const MAX_RESPONSE_MIB = 64;
 const MAX_REDIRECTS = 50;
+const MAX_BATCH_INPUT_BYTES = 64 * 1024 * 1024;
 const USER_AGENT_PRESETS: Record<string, string> = {
   nekobox: "NekoBox/Android/1.4.2 (Prefer ClashMeta Format)",
   "sing-box": "sing-box/1.15.0",
@@ -82,8 +90,10 @@ const dom = {
   maxResponseMib: getElement<HTMLInputElement>("max-response-mib"),
   maxRedirects: getElement<HTMLInputElement>("max-redirects"),
   deduplicateOutput: getElement<HTMLButtonElement>("deduplicate-output"),
+  includeLossyOutput: getElement<HTMLButtonElement>("include-lossy-output"),
   skipCertificateVerification: getElement<HTMLButtonElement>("skip-certificate-verification"),
   skipCertificateNote: getElement<HTMLParagraphElement>("skip-certificate-note"),
+  allowLocalNetwork: getElement<HTMLButtonElement>("allow-local-network"),
   convertButton: getElement<HTMLButtonElement>("convert-button"),
   convertLabel: getElement<HTMLSpanElement>("convert-button").querySelector<HTMLSpanElement>(".button-label")!,
   progressCopy: getElement<HTMLDivElement>("progress-copy"),
@@ -143,8 +153,13 @@ let settingsTrigger: HTMLButtonElement | null = null;
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
 let duplicateCount = 0;
+let activeSourceDocuments: SourceDocument[] = [];
+let conversionAbort: AbortController | null = null;
+let cancelRequested = false;
 let running = false;
 let completedSources = 0;
+let fetchRunId = 0;
+const activeFetchRequests = new Set<string>();
 let toastTimer: number | undefined;
 
 function setValidation(message = "", warning = false) {
@@ -387,6 +402,12 @@ function resolveUserAgent(): string | null {
 interface DetectedImportInput {
   urls: string[];
   local: string[];
+  truncated: boolean;
+  fragmentsTruncated: boolean;
+  uriLimitReached: boolean;
+  decodedTooLarge: number;
+  depthLimited: boolean;
+  inputTooLarge: boolean;
 }
 
 function readImportInput(): DetectedImportInput | null {
@@ -398,6 +419,10 @@ function readImportInput(): DetectedImportInput | null {
   }
 
   const detected = detectSubscriptionInput(value);
+  if (detected.inputTooLarge) {
+    setValidation("输入内容超过 64 MiB 上限。");
+    return null;
+  }
   if (detected.urls.length === 0 && detected.local.length === 0) {
     setValidation("未检测到有效的订阅 URL、节点 URI 或配置内容。");
     dom.urls.focus();
@@ -429,18 +454,24 @@ async function pasteFromClipboard() {
 async function importFile() {
   if (running) return;
   try {
-    const selected = await open({ multiple: false, directory: false });
+    const selected = await open({ multiple: true, directory: false });
     if (!selected) return;
-    const path = Array.isArray(selected) ? selected[0] : selected;
-    if (!path) return;
-    const content = await invoke<string>("read_text_file", { path });
-    if (!content.trim()) {
+    const paths = Array.isArray(selected) ? selected : [selected];
+    const imported = await Promise.all(paths.map(path => invoke<string>("read_text_file", { path })));
+    const nonempty = imported.filter(content => content.trim());
+    if (!nonempty.length) {
       showToast("文件内容为空", true);
       return;
     }
-    dom.urls.value = content;
+    const appended = nonempty.join("\n---\n");
+    const combined = [dom.urls.value.trimEnd(), appended].filter(Boolean).join("\n---\n");
+    if (new Blob([combined]).size > 64 * 1024 * 1024) {
+      showToast("追加后输入超过 64 MiB 上限", true);
+      return;
+    }
+    dom.urls.value = combined;
     setValidation();
-    showToast("已导入文件内容");
+    showToast(`已追加 ${nonempty.length} 个文件`);
   } catch (error) {
     showToast(failureFrom(error).message || "读取文件失败", true);
   }
@@ -481,6 +512,10 @@ function shouldSkipCertificateVerification(): boolean {
   return dom.skipCertificateVerification.getAttribute("aria-pressed") === "true";
 }
 
+function shouldAllowLocalNetwork(): boolean {
+  return dom.allowLocalNetwork.getAttribute("aria-pressed") === "true";
+}
+
 function toggleCertificateVerification() {
   const skip = !shouldSkipCertificateVerification();
   dom.skipCertificateVerification.setAttribute("aria-pressed", String(skip));
@@ -491,10 +526,20 @@ function shouldDeduplicateOutput(): boolean {
   return dom.deduplicateOutput.getAttribute("aria-pressed") !== "false";
 }
 
+function shouldIncludeLossyOutput(): boolean {
+  return dom.includeLossyOutput.getAttribute("aria-pressed") === "true";
+}
+
 function toggleOutputDeduplication() {
   const deduplicate = !shouldDeduplicateOutput();
   dom.deduplicateOutput.setAttribute("aria-pressed", String(deduplicate));
-  if (!running && sourceResults.length > 0) aggregateResults();
+  if (!running && activeSourceDocuments.length > 0) void refreshConversion();
+}
+
+function toggleLossyOutput() {
+  const includeLossy = !shouldIncludeLossyOutput();
+  dom.includeLossyOutput.setAttribute("aria-pressed", String(includeLossy));
+  if (!running && activeSourceDocuments.length > 0) void refreshConversion();
 }
 
 function setProcessingStatus(label: string, state: ProcessingState) {
@@ -505,7 +550,7 @@ function setProcessingStatus(label: string, state: ProcessingState) {
 
 function setBusy(busy: boolean) {
   running = busy;
-  dom.convertButton.disabled = busy;
+  dom.convertButton.disabled = false;
   dom.urls.disabled = busy;
   dom.pasteButton.disabled = busy;
   dom.importFileButton.disabled = busy;
@@ -516,8 +561,9 @@ function setBusy(busy: boolean) {
   dom.maxRedirects.disabled = busy;
   dom.deduplicateOutput.disabled = busy;
   dom.skipCertificateVerification.disabled = busy;
+  dom.allowLocalNetwork.disabled = busy;
   dom.convertButton.classList.toggle("busy", busy);
-  dom.convertLabel.textContent = busy ? "正在转换…" : "开始转换";
+  dom.convertLabel.textContent = busy ? "取消处理" : "开始转换";
   setProcessingStatus(busy ? "处理中" : "已完成", busy ? "running" : "done");
 }
 
@@ -529,23 +575,47 @@ function updateProgress(done: number, total: number) {
     : `已处理 ${done} / ${total} 个来源`;
 }
 
-function aggregateResults() {
-  const deduplicate = shouldDeduplicateOutput();
-  const seenNodes = new Set<string>();
-  const nodes: string[] = [];
-  duplicateCount = 0;
+function appendConversionDiagnostics(result: ConversionResult) {
+  const labels = new Map(sourceResults.map(source => [source.kind === "local" ? "local" : source.sourceId, source.kind === "local" ? "本地内容" : displayUrl(source.url)]));
+  const visible = result.diagnostics.slice(0, 40);
+  for (const item of visible) {
+    const sourceLabel = labels.get(item.sourceId) ?? item.sourceId;
+    const location = [item.location, item.nodeId ? `节点 ${item.nodeId}` : ""].filter(Boolean).join(" · ");
+    const field = item.field ? ` 字段 ${item.field}` : "";
+    appendLog(`${sourceLabel} · ${item.stage}/${item.code}${location ? ` · ${location}` : ""}${field}：${item.message}`, item.severity === "error");
+  }
+  if (result.diagnostics.length > visible.length) {
+    appendLog(`另有 ${result.diagnostics.length - visible.length} 条诊断，已在转换结果中统计。`);
+  }
+}
+
+function aggregateResults(result: ConversionResult, logDiagnostics = true) {
+  outputUris = [...result.uris];
+  duplicateCount = result.stats.duplicates;
+  const allowed = new Set(result.encoded
+    .filter(item => item.uri && (item.status === "complete" || (shouldIncludeLossyOutput() && item.status === "lossy")))
+    .map(item => item.uri as string));
 
   for (const source of sourceResults) {
-    if (source.state !== "success") continue;
-    for (const node of source.nodes) {
-      const duplicate = seenNodes.has(node);
-      if (duplicate) duplicateCount++;
-      else seenNodes.add(node);
-      if (!deduplicate || !duplicate) nodes.push(node);
+    const sourceId = source.kind === "local" ? "local" : source.sourceId;
+    source.diagnostics = result.diagnostics.filter(item => item.sourceId === sourceId);
+    const sourceEncodings = result.encoded.filter(item => item.node.sources.some(origin => origin.sourceId === sourceId));
+    source.nodes = sourceEncodings
+      .filter(item => item.uri && allowed.has(item.uri))
+      .map(item => item.uri as string);
+    if (source.content !== undefined) {
+      if (source.nodes.length > 0) source.state = "success";
+      else {
+        source.state = "error";
+        const hasLossyOnlyResults = !shouldIncludeLossyOutput() && sourceEncodings.some(item => item.status === "lossy");
+        source.errorCode = hasLossyOnlyResults ? "lossy_only" : "no_nodes";
+        source.errorMessage = hasLossyOnlyResults
+          ? "节点包含无法无损转换的字段；可在输出设置中允许有损结果。"
+          : "来源内容没有生成可用 URI，请查看解析与验证诊断。";
+      }
     }
   }
 
-  outputUris = nodes;
   const successfulSources = sourceResults.filter(source => source.state === "success").length;
   dom.nodeCount.textContent = String(outputUris.length);
   dom.sourceCount.textContent = String(successfulSources);
@@ -556,9 +626,40 @@ function aggregateResults() {
   dom.outputSize.textContent = `${outputUris.length} 条 · ${formatBytes(new Blob([dom.output.value]).size)}`;
   dom.outputArea.hidden = !hasOutput;
   dom.emptyState.hidden = hasOutput;
-  if (!hasOutput) {
-    dom.emptyStateTitle.textContent = sourceResults.length > 0 ? "没有可用节点" : "等待输出";
+  if (!hasOutput) dom.emptyStateTitle.textContent = sourceResults.length > 0 ? "没有可用节点" : "等待输出";
+  if (logDiagnostics) appendConversionDiagnostics(result);
+}
+
+async function refreshConversion() {
+  if (!activeSourceDocuments.length || running) return;
+  const controller = new AbortController();
+  conversionAbort = controller;
+  setBusy(true);
+  try {
+    const result = await convertSourcesInWorker(activeSourceDocuments, {
+      deduplicate: shouldDeduplicateOutput(),
+      includeLossy: shouldIncludeLossyOutput(),
+      signal: controller.signal,
+    });
+    aggregateResults(result, false);
+  } catch (error) {
+    appendLog(`重新转换失败：${failureFrom(error).message}`, true);
+  } finally {
+    if (conversionAbort === controller) conversionAbort = null;
+    setBusy(false);
   }
+}
+
+function cancelConversion() {
+  if (!running) return;
+  cancelRequested = true;
+  conversionAbort?.abort();
+  for (const requestId of activeFetchRequests) {
+    void invoke<boolean>("cancel_subscription", { requestId }).catch(() => undefined);
+  }
+  dom.convertButton.disabled = true;
+  dom.convertLabel.textContent = "正在取消…";
+  appendLog("正在取消后续处理…");
 }
 function failureFrom(error: unknown): { code: string; message: string } {
   if (error instanceof ConversionError) return { code: error.code, message: error.message };
@@ -582,12 +683,83 @@ async function runWithConcurrency<T>(
 ) {
   let cursor = 0;
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (cursor < items.length) {
+    while (cursor < items.length && !cancelRequested) {
       const index = cursor++;
       await worker(items[index], index);
     }
   });
   await Promise.all(workers);
+}
+
+function shouldRetryAutomaticUserAgent(result: ConversionResult): boolean {
+  if (result.stats.parsedNodes > 0) return false;
+  return result.diagnostics.some(item => ["unknown_format", "no_native_nodes", "no_proxy_section", "no_uri_nodes"].includes(item.code));
+}
+
+async function probeSubscription(content: string, sourceId: string, signal?: AbortSignal): Promise<ConversionResult> {
+  return convertSourcesInWorker([{ sourceId, sourceName: "User-Agent probe", content }], {
+    deduplicate: false,
+    includeLossy: true,
+    signal,
+  });
+}
+
+async function fetchSubscriptionWithFallback(
+  url: string,
+  userAgent: string | null,
+  requestLimits: { maxResponseBytes: number; maxRedirects: number },
+  sourceId: string,
+  requestId: string,
+  signal: AbortSignal,
+): Promise<FetchedSubscription> {
+  let requestAttempt = 0;
+  const fetch = async (agent: string | null) => {
+    if (signal.aborted) throw new ConversionError("cancelled", "处理已取消。");
+    const activeRequestId = `${requestId}:${++requestAttempt}`;
+    const cancelRequest = () => {
+      void invoke<boolean>("cancel_subscription", { requestId: activeRequestId }).catch(() => undefined);
+    };
+    activeFetchRequests.add(activeRequestId);
+    signal.addEventListener("abort", cancelRequest, { once: true });
+    if (signal.aborted) cancelRequest();
+    try {
+      return await invoke<FetchedSubscription>("fetch_subscription", {
+        url,
+        userAgent: agent,
+        requestId: activeRequestId,
+        skipCertificateVerification: shouldSkipCertificateVerification(),
+        allowLocalNetwork: shouldAllowLocalNetwork(),
+        maxResponseBytes: requestLimits.maxResponseBytes,
+        maxRedirects: requestLimits.maxRedirects,
+      });
+    } finally {
+      signal.removeEventListener("abort", cancelRequest);
+      activeFetchRequests.delete(activeRequestId);
+    }
+  };
+
+  let fetched = await fetch(userAgent);
+  if (userAgent !== null) return fetched;
+  let probe = await probeSubscription(fetched.content, sourceId, signal);
+  if (!shouldRetryAutomaticUserAgent(probe)) return fetched;
+
+  const tried = new Set([fetched.usedUserAgent]);
+  for (const agent of Object.values(USER_AGENT_PRESETS)) {
+    if (cancelRequested) return fetched;
+    if (tried.has(agent)) continue;
+    tried.add(agent);
+    appendLog(`远程订阅 ${displayUrl(url)}：内容无法识别，改用 ${agent} 重试`);
+    try {
+      const candidate = await fetch(agent);
+      const candidateProbe = await probeSubscription(candidate.content, sourceId, signal);
+      fetched = candidate;
+      probe = candidateProbe;
+      if (!shouldRetryAutomaticUserAgent(candidateProbe)) return candidate;
+    } catch (error) {
+      appendLog(`User-Agent ${agent} 重试失败：${failureFrom(error).message}`);
+    }
+  }
+  return fetched;
 }
 
 async function startConversion() {
@@ -613,36 +785,110 @@ async function startConversion() {
   closeSettings(false);
   closeDetail(false);
 
-  // 本地内容先解析为一个来源，再与远程订阅并发处理。
+  cancelRequested = false;
+  activeSourceDocuments = [];
+  const runController = new AbortController();
+  conversionAbort = runController;
+  fetchRunId++;
+
+  // 本地内容与每个远程订阅分别保留来源 ID，统一进入转换管线。
   const hasLocal = input.local.length > 0;
-  const localNodes = hasLocal ? toStandardUris(input.local) : [];
+  const localContent = hasLocal ? input.local.join("\n") : undefined;
   const localBytes = hasLocal ? new Blob([input.local.join("\n")]).size : 0;
+  let accumulatedContentBytes = localBytes;
+  const localInputDiagnostics: Diagnostic[] = [];
+  if (hasLocal && input.fragmentsTruncated) {
+    localInputDiagnostics.push(diagnostic(
+      { sourceId: "local", stage: "preprocess" },
+      "fragment_limit",
+      "warning",
+      "Input expansion stopped at the configured fragment limit.",
+    ));
+  }
+  if (hasLocal && input.uriLimitReached) {
+    localInputDiagnostics.push(diagnostic(
+      { sourceId: "local", stage: "preprocess" },
+      "uri_limit",
+      "warning",
+      "URI extraction stopped at the 100,000 node limit.",
+    ));
+  }
+  if (hasLocal && input.decodedTooLarge > 0) {
+    localInputDiagnostics.push(diagnostic(
+      { sourceId: "local", stage: "preprocess" },
+      "decoded_fragment_too_large",
+      "warning",
+      `${input.decodedTooLarge} decoded fragment(s) exceeded the 64 MiB limit.`,
+    ));
+  }
+  if (hasLocal && input.depthLimited) {
+    localInputDiagnostics.push(diagnostic(
+      { sourceId: "local", stage: "preprocess" },
+      "recursion_limit",
+      "warning",
+      "Base64 expansion stopped at depth 16.",
+    ));
+  }
   const remoteOffset = hasLocal ? 1 : 0;
   const totalSources = input.urls.length + remoteOffset;
+  const remainingBatchBytes = Math.max(0, MAX_BATCH_INPUT_BYTES - localBytes);
+  const canFetchRemote = input.urls.length === 0 || remainingBatchBytes >= MIN_RESPONSE_MIB * 1024 * 1024;
+  const configuredResponseLimit = requestLimits.maxResponseBytes;
+  const configuredFetchConcurrency = fetchConcurrency;
+  if (canFetchRemote && input.urls.length > 0) {
+    const effectiveResponseLimit = Math.min(requestLimits.maxResponseBytes, remainingBatchBytes);
+    requestLimits = { ...requestLimits, maxResponseBytes: effectiveResponseLimit };
+    fetchConcurrency = Math.min(
+      fetchConcurrency,
+      Math.max(1, Math.floor(remainingBatchBytes / effectiveResponseLimit)),
+    );
+  }
 
   sourceResults = [];
   if (hasLocal) {
-    sourceResults.push(localNodes.length > 0
-      ? { kind: "local", url: "", state: "success", nodes: localNodes, bytes: localBytes }
-      : { kind: "local", url: "", state: "error", nodes: [], errorCode: "no_nodes", errorMessage: "本地内容未解析到可用节点。" });
+    sourceResults.push({
+      sourceId: "local",
+      kind: "local",
+      url: "",
+      state: "pending",
+      nodes: [],
+      diagnostics: localInputDiagnostics,
+      content: localContent,
+      bytes: localBytes,
+    });
   }
-  sourceResults.push(...input.urls.map(url => ({ kind: "remote" as const, url, state: "pending" as const, nodes: [] })));
+  sourceResults.push(...input.urls.map((url, index) => ({
+    sourceId: `remote-${index + 1}`,
+    kind: "remote" as const,
+    url,
+    state: "pending" as const,
+    nodes: [],
+    diagnostics: [],
+  })));
 
   dom.logList.replaceChildren();
   dom.processingEmpty.hidden = true;
   appendLog(`开始处理：${totalSources} 个来源`);
+  if (!hasLocal && (input.fragmentsTruncated || input.uriLimitReached || input.decodedTooLarge > 0 || input.depthLimited)) {
+    appendLog("输入展开或 URI 提取触及资源上限，部分内容已跳过。", true);
+  }
   if (hasLocal) {
-    appendLog(
-      localNodes.length > 0
-        ? `本地内容：解析到 ${localNodes.length} 个节点`
-        : "本地内容：未解析到可用节点",
-      localNodes.length === 0,
-    );
+    appendLog("本地内容：已加入统一转换队列");
+  }
+  if (input.urls.length > 0 && !canFetchRemote) {
+    for (const source of sourceResults.slice(remoteOffset)) {
+      source.state = "error";
+      source.errorCode = "batch_input_too_large";
+      source.errorMessage = "Local input leaves less than 1 MiB of the 64 MiB conversion limit.";
+    }
+    appendLog("本地输入已达到 64 MiB 上限，远程订阅未发起请求。", true);
+  } else if (requestLimits.maxResponseBytes < configuredResponseLimit || fetchConcurrency < configuredFetchConcurrency) {
+    appendLog(`为控制合并输入大小，单个响应上限调整为 ${formatBytes(requestLimits.maxResponseBytes)}，并发调整为 ${fetchConcurrency}。`);
   }
 
   outputUris = [];
   duplicateCount = 0;
-  completedSources = hasLocal ? 1 : 0;
+  completedSources = sourceResults.filter(source => source.state === "error").length;
 
   dom.nodeCount.textContent = "0";
   dom.sourceCount.textContent = "0";
@@ -653,42 +899,46 @@ async function startConversion() {
   setBusy(true);
   updateProgress(completedSources, totalSources);
 
-  await runWithConcurrency(input.urls, fetchConcurrency, async (url, index) => {
+  await runWithConcurrency(canFetchRemote ? input.urls : [], fetchConcurrency, async (url, index) => {
     const sourceIndex = remoteOffset + index;
+    const source = sourceResults[sourceIndex];
     appendLog(`远程订阅 ${displayUrl(url)}：开始拉取`);
     try {
-      const fetched = await invoke<FetchedSubscription>("fetch_subscription", {
+      const fetched = await fetchSubscriptionWithFallback(
         url,
         userAgent,
-        skipCertificateVerification: shouldSkipCertificateVerification(),
-        maxResponseBytes: requestLimits.maxResponseBytes,
-        maxRedirects: requestLimits.maxRedirects,
-      });
-      const nodes = toStandardUris(fetched.content).filter(node => !/^https?:\/\//i.test(node));
-      if (nodes.length === 0) {
-        throw new ConversionError(
-          "no_nodes",
-          "订阅内容已获取，但未找到可转换的节点；请检查订阅格式或更换 User-Agent。",
-        );
-      }
-
-      sourceResults[sourceIndex] = {
-        kind: "remote",
-        url,
-        state: "success",
-        nodes,
+        requestLimits,
+        source.sourceId,
+        `${fetchRunId}:${source.sourceId}`,
+        runController.signal,
+      );
+      if (cancelRequested) {
+        sourceResults[sourceIndex] = { ...source, state: "error", errorCode: "cancelled", errorMessage: "处理已取消。" };
+      } else if (accumulatedContentBytes + fetched.bytes > MAX_BATCH_INPUT_BYTES) {
+        sourceResults[sourceIndex] = {
+          ...source,
+          state: "error",
+          errorCode: "batch_input_too_large",
+          errorMessage: "Combined subscription content exceeds the 64 MiB conversion limit.",
+        };
+        appendLog(`远程订阅 ${displayUrl(url)}：内容未加入转换，合并输入超过 64 MiB 上限`, true);
+      } else {
+        accumulatedContentBytes += fetched.bytes;
+        sourceResults[sourceIndex] = {
+        ...source,
+        state: "pending",
+        content: fetched.content,
         bytes: fetched.bytes,
         finalUrl: fetched.finalUrl,
         usedUserAgent: fetched.usedUserAgent,
       };
-      appendLog(`远程订阅 ${displayUrl(url)}：成功，${nodes.length} 个节点`);
+        appendLog(`远程订阅 ${displayUrl(url)}：已获取 ${formatBytes(fetched.bytes)}，开始统一解析`);
+      }
     } catch (error) {
       const failure = failureFrom(error);
       sourceResults[sourceIndex] = {
-        kind: "remote",
-        url,
+        ...source,
         state: "error",
-        nodes: [],
         errorCode: failure.code,
         errorMessage: failure.message,
       };
@@ -699,12 +949,48 @@ async function startConversion() {
     }
   });
 
-  aggregateResults();
+  for (const source of sourceResults) {
+    if (source.state === "pending" && cancelRequested) {
+      source.state = "error";
+      source.errorCode = "cancelled";
+      source.errorMessage = "处理已取消。";
+      completedSources++;
+    }
+  }
+
+  activeSourceDocuments = sourceResults
+    .filter(source => source.content !== undefined && source.state === "pending")
+    .map(source => ({
+      sourceId: source.sourceId,
+      sourceName: source.kind === "local" ? "本地内容" : displayUrl(source.url),
+      content: source.content as string,
+      ...(source.diagnostics.length ? { diagnostics: source.diagnostics } : {}),
+    }));
+
+  if (activeSourceDocuments.length > 0 && !cancelRequested) {
+    try {
+      const result = await convertSourcesInWorker(activeSourceDocuments, {
+        deduplicate: shouldDeduplicateOutput(),
+        includeLossy: shouldIncludeLossyOutput(),
+        signal: runController.signal,
+      });
+      aggregateResults(result);
+      if (result.cancelled) cancelRequested = true;
+    } catch (error) {
+      appendLog(`统一转换失败：${failureFrom(error).message}`, true);
+    } finally {
+      if (conversionAbort === runController) conversionAbort = null;
+    }
+  }
+  if (conversionAbort === runController) conversionAbort = null;
+
+  completedSources = totalSources;
   setBusy(false);
   updateProgress(totalSources, totalSources);
 
   const successful = sourceResults.filter(source => source.state === "success").length;
-  if (successful === totalSources) setProcessingStatus("全部完成", "done");
+  if (cancelRequested) setProcessingStatus("已取消", "warning");
+  else if (successful === totalSources) setProcessingStatus("全部完成", "done");
   else if (successful > 0) setProcessingStatus("部分完成", "warning");
   else setProcessingStatus("处理失败", "error");
 
@@ -713,10 +999,11 @@ async function startConversion() {
     appendLog(`处理完成：成功 ${successful}/${totalSources} 个来源，输出 ${outputUris.length} 个唯一节点`);
     showToast(`已生成 ${outputUris.length} 个节点 URI`);
   } else {
-    dom.progressCopy.textContent = "转换结束，但没有获得可用节点";
+    dom.progressCopy.textContent = cancelRequested ? "处理已取消" : "转换结束，但没有获得可用节点";
     appendLog(`处理结束：成功 ${successful}/${totalSources} 个来源，没有可用节点`, true);
     showToast("没有获得可用节点，请查看日志中的错误信息", true);
   }
+  cancelRequested = false;
 }
 
 async function copyText(value: string) {
@@ -768,7 +1055,10 @@ async function saveAll() {
 }
 
 function bindEvents() {
-  dom.convertButton.addEventListener("click", () => void startConversion());
+  dom.convertButton.addEventListener("click", () => {
+    if (running) cancelConversion();
+    else void startConversion();
+  });
   dom.clearLogButton.addEventListener("click", clearLog);
   dom.pasteButton.addEventListener("click", () => void pasteFromClipboard());
   dom.importFileButton.addEventListener("click", () => void importFile());
@@ -806,6 +1096,11 @@ function bindEvents() {
   dom.settingsCloseButton.addEventListener("click", () => closeSettings());
   dom.settingsBackdrop.addEventListener("click", () => closeSettings());
   dom.deduplicateOutput.addEventListener("click", toggleOutputDeduplication);
+  dom.includeLossyOutput.addEventListener("click", toggleLossyOutput);
+  dom.allowLocalNetwork.addEventListener("click", () => {
+    const enabled = !shouldAllowLocalNetwork();
+    dom.allowLocalNetwork.setAttribute("aria-pressed", String(enabled));
+  });
 
   for (const view of detailViews) {
     view.button.addEventListener("click", () => toggleDetail(view));

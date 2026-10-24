@@ -146,23 +146,49 @@ function xray(node: NodeMap): string[] {
   });
 }
 
-export function extractNativeNodes(value: unknown, depth = 0, visited = new WeakSet<object>()): string[] {
-  if (depth > 64) return [];
+export function extractNativeNodes(
+  value: unknown,
+  depth = 0,
+  visited = new WeakSet<object>(),
+  maxNodes = Number.POSITIVE_INFINITY,
+): string[] {
+  if (depth > 64 || maxNodes <= 0) return [];
   if (value !== null && typeof value === "object") {
     if (visited.has(value)) return [];
     visited.add(value);
   }
-  if (Array.isArray(value)) return value.flatMap(item => extractNativeNodes(item, depth + 1, visited));
+  if (Array.isArray(value)) {
+    const result: string[] = [];
+    for (const item of value) {
+      if (result.length >= maxNodes) break;
+      result.push(...extractNativeNodes(item, depth + 1, visited, maxNodes - result.length));
+    }
+    return result;
+  }
   const node = map(value);
-  if ("outbounds" in node || "endpoints" in node) return [...objects(node.outbounds), ...objects(node.endpoints)].flatMap(item => extractNativeNodes(item, depth + 1, visited));
-  if ("proxies" in node) return objects(node.proxies).flatMap(proxy => safeEncode(proxy, text(node, "global-client-fingerprint")));
-  if ("type" in node && "server" in node && "port" in node && !("server_port" in node)) return safeEncode(node);
+  if ("outbounds" in node || "endpoints" in node) {
+    const result: string[] = [];
+    for (const item of [...objects(node.outbounds), ...objects(node.endpoints)]) {
+      if (result.length >= maxNodes) break;
+      result.push(...extractNativeNodes(item, depth + 1, visited, maxNodes - result.length));
+    }
+    return result;
+  }
+  if ("proxies" in node) {
+    const result: string[] = [];
+    for (const proxy of objects(node.proxies)) {
+      if (result.length >= maxNodes) break;
+      result.push(...safeEncode(proxy, text(node, "global-client-fingerprint")).slice(0, maxNodes - result.length));
+    }
+    return result;
+  }
+  if ("type" in node && "server" in node && "port" in node && !("server_port" in node)) return safeEncode(node).slice(0, maxNodes);
   if ("add" in node && "id" in node) {
     const payload: NodeMap = {};
     copy(node, payload, ["v", "ps", "add", "port", "id", "aid", "scy", "net", "type", "host", "path", "tls", "sni", "alpn", "fp", "serviceName", "ed", "eh", "seed", "mode", "extra", "global_padding", "authenticated_length", "packetEncoding", "certificate", "certificate_public_key_sha256", "pinSHA256", "verifyPeerCertByName", "echEnabled", "echConfigList", "echQueryServerName"]);
-    return ["vmess://" + encodeBase64(JSON.stringify(payload))];
+    return ["vmess://" + encodeBase64(JSON.stringify(payload))].slice(0, maxNodes);
   }
-  try { return "protocol" in node ? xray(node) : "type" in node ? singBox(node) : []; }
+  try { return ("protocol" in node ? xray(node) : "type" in node ? singBox(node) : []).slice(0, maxNodes); }
   catch { return []; }
 }
 
