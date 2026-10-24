@@ -4,6 +4,7 @@ import { detectSubscriptionInput } from "./core/subscription-import/index.ts";
 import { convertSourcesInWorker } from "./core/worker-client.ts";
 import { diagnostic } from "./core/diagnostics/index.ts";
 import type { Diagnostic } from "./core/diagnostics/index.ts";
+import type { ProxyProtocol } from "./core/model/proxy-node.ts";
 import type { ConversionResult, SourceDocument } from "./core/pipeline.ts";
 
 interface FetchedSubscription {
@@ -23,6 +24,17 @@ interface FetchFailure {
 
 type SourceState = "pending" | "success" | "error";
 type ProcessingState = "idle" | "running" | "done" | "warning" | "error";
+interface CategorizedOutput {
+  protocol: ProxyProtocol;
+  uri: string;
+}
+
+interface OutputGroup {
+  id: string;
+  name: string;
+  // 组内按任一已选节点类型匹配；不同分组独立计算，允许重复命中。
+  matchProtocols: ProxyProtocol[];
+}
 
 type SourceKind = "local" | "remote";
 
@@ -47,6 +59,28 @@ const MIN_RESPONSE_MIB = 1;
 const MAX_RESPONSE_MIB = 64;
 const MAX_REDIRECTS = 50;
 const MAX_BATCH_INPUT_BYTES = 64 * 1024 * 1024;
+const OUTPUT_PROTOCOLS: Array<{ value: ProxyProtocol; label: string }> = [
+  { value: "vless", label: "VLESS" },
+  { value: "vmess", label: "VMess" },
+  { value: "ss", label: "Shadowsocks" },
+  { value: "trojan", label: "Trojan" },
+  { value: "hysteria2", label: "Hysteria2" },
+  { value: "tuic", label: "TUIC" },
+  { value: "anytls", label: "AnyTLS" },
+  { value: "socks5", label: "SOCKS5" },
+  { value: "socks4", label: "SOCKS4" },
+  { value: "socks4a", label: "SOCKS4a" },
+  { value: "socks", label: "SOCKS" },
+  { value: "wireguard", label: "WireGuard" },
+  { value: "naive", label: "NaiveProxy" },
+  { value: "masque", label: "MASQUE" },
+];
+const OUTPUT_GROUPS_STORAGE_KEY = "all2uri.output-groups";
+const LEGACY_CATEGORY_RULES_STORAGE_KEY = "all2uri.output-category-rules";
+const DEFAULT_OUTPUT_GROUPS: OutputGroup[] = [
+  { id: "default-vless", name: "VLESS", matchProtocols: ["vless"] },
+  { id: "default-vmess", name: "VMess", matchProtocols: ["vmess"] },
+];
 const USER_AGENT_PRESETS: Record<string, string> = {
   nekobox: "NekoBox/Android/1.4.2 (Prefer ClashMeta Format)",
   "sing-box": "sing-box/1.15.0",
@@ -61,6 +95,70 @@ class ConversionError extends Error {
   ) {
     super(message);
     this.name = "ConversionError";
+  }
+}
+
+function createOutputGroupId(): string {
+  return typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getProtocolLabel(protocol: ProxyProtocol): string {
+  return OUTPUT_PROTOCOLS.find(item => item.value === protocol)?.label ?? protocol.toUpperCase();
+}
+
+function isProxyProtocol(value: unknown): value is ProxyProtocol {
+  return typeof value === "string" && OUTPUT_PROTOCOLS.some(item => item.value === value);
+}
+
+function loadOutputGroups(): OutputGroup[] {
+  try {
+    const storedGroups = window.localStorage.getItem(OUTPUT_GROUPS_STORAGE_KEY);
+    if (storedGroups !== null) {
+      const parsed: unknown = JSON.parse(storedGroups);
+      if (!Array.isArray(parsed)) return DEFAULT_OUTPUT_GROUPS.map(group => ({ ...group }));
+      const groups: OutputGroup[] = [];
+      for (const item of parsed) {
+        if (typeof item !== "object" || item === null) continue;
+        const candidate = item as Partial<OutputGroup> & { matchProtocol?: unknown };
+        const storedProtocols = Array.isArray(candidate.matchProtocols)
+          ? candidate.matchProtocols
+          : [candidate.matchProtocol];
+        const matchProtocols = [...new Set(storedProtocols.filter(isProxyProtocol))];
+        groups.push({
+          id: typeof candidate.id === "string" && candidate.id ? candidate.id : createOutputGroupId(),
+          name: typeof candidate.name === "string" && candidate.name.trim()
+            ? candidate.name.trim().slice(0, 60)
+            : matchProtocols.length ? getProtocolLabel(matchProtocols[0]) : "新分组",
+          matchProtocols,
+        });
+      }
+      return groups;
+    }
+
+    const legacyRules = window.localStorage.getItem(LEGACY_CATEGORY_RULES_STORAGE_KEY);
+    if (legacyRules !== null) {
+      const parsed: unknown = JSON.parse(legacyRules);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(isProxyProtocol).map((protocol, index) => ({
+          id: `migrated-${index}-${protocol}`,
+          name: getProtocolLabel(protocol),
+          matchProtocols: [protocol],
+        }));
+      }
+    }
+  } catch {
+    return DEFAULT_OUTPUT_GROUPS.map(group => ({ ...group }));
+  }
+  return DEFAULT_OUTPUT_GROUPS.map(group => ({ ...group }));
+}
+
+function saveOutputGroups() {
+  try {
+    window.localStorage.setItem(OUTPUT_GROUPS_STORAGE_KEY, JSON.stringify(outputGroups));
+  } catch {
+    // 分组仍可在当前会话中使用；存储不可用时忽略持久化错误。
   }
 }
 
@@ -91,13 +189,12 @@ const dom = {
   progressCopy: getElement<HTMLDivElement>("progress-copy"),
   progressBar: getElement<HTMLSpanElement>("progress-bar"),
   processingStatus: getElement<HTMLSpanElement>("processing-status"),
-  emptyState: getElement<HTMLDivElement>("empty-state"),
-  emptyStateTitle: getElement<HTMLElement>("empty-state-title"),
   logList: getElement<HTMLDivElement>("log-list"),
   clearLogButton: getElement<HTMLButtonElement>("clear-log-button"),
-  outputArea: getElement<HTMLDivElement>("output-area"),
-  output: getElement<HTMLTextAreaElement>("output-uris"),
-  outputSize: getElement<HTMLSpanElement>("output-size"),
+  outputGroupList: getElement<HTMLDivElement>("output-group-list"),
+  outputGroupEmpty: getElement<HTMLDivElement>("output-group-empty"),
+  addOutputGroupButton: getElement<HTMLButtonElement>("add-output-group"),
+  outputOverview: getElement<HTMLSpanElement>("output-overview"),
   nodeCount: getElement<HTMLElement>("node-count"),
   sourceCount: getElement<HTMLElement>("source-count"),
   duplicateCount: getElement<HTMLElement>("duplicate-count"),
@@ -141,6 +238,8 @@ let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
+let outputEntries: CategorizedOutput[] = [];
+let outputGroups: OutputGroup[] = loadOutputGroups();
 let duplicateCount = 0;
 let activeSourceDocuments: SourceDocument[] = [];
 let conversionAbort: AbortController | null = null;
@@ -523,12 +622,229 @@ function appendConversionDiagnostics(result: ConversionResult) {
   }
 }
 
+function getOutputGroupUris(group: OutputGroup): string[] {
+  // 多选类型之间是“或”关系，分组之间不互斥。
+  return outputEntries.filter(entry => group.matchProtocols.includes(entry.protocol)).map(entry => entry.uri);
+}
+
+function groupResultEmptyText(group: OutputGroup): string {
+  if (group.matchProtocols.length === 0) return "请至少选择一个节点类型";
+  if (running) return "正在处理订阅，完成后显示匹配结果";
+  if (outputUris.length > 0) return "当前规则没有匹配到节点";
+  if (sourceResults.length > 0) return "本次转换没有可用节点";
+  return "等待转换结果";
+}
+
+function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
+  const uris = getOutputGroupUris(group);
+  const card = document.createElement("article");
+  card.className = "output-group-card";
+  card.setAttribute("role", "listitem");
+  card.dataset.groupId = group.id;
+  card.setAttribute("aria-label", group.name);
+
+  const heading = document.createElement("div");
+  heading.className = "output-group-heading";
+  const number = document.createElement("span");
+  number.className = "output-group-number";
+  number.textContent = `分组 ${String(index + 1).padStart(2, "0")}`;
+  const name = document.createElement("input");
+  name.className = "text-input output-group-name";
+  name.type = "text";
+  name.maxLength = 60;
+  name.value = group.name;
+  name.setAttribute("aria-label", `第 ${index + 1} 个分组名称`);
+  name.addEventListener("change", () => {
+    group.name = name.value.trim() || (group.matchProtocols[0] ? getProtocolLabel(group.matchProtocols[0]) : "新分组");
+    name.value = group.name;
+    card.setAttribute("aria-label", group.name);
+    remove.setAttribute("aria-label", `删除分组 ${group.name}`);
+    saveOutputGroups();
+  });
+  const remove = document.createElement("button");
+  remove.className = "output-group-remove";
+  remove.type = "button";
+  remove.textContent = "×";
+  remove.setAttribute("aria-label", `删除分组 ${group.name}`);
+  remove.addEventListener("click", () => {
+    outputGroups = outputGroups.filter(item => item.id !== group.id);
+    saveOutputGroups();
+    renderOutputGroups();
+  });
+  heading.append(number, name, remove);
+
+  const rule = document.createElement("div");
+  rule.className = "output-group-rule";
+  const ruleLabel = document.createElement("span");
+  ruleLabel.className = "output-group-rule-label";
+  ruleLabel.textContent = "匹配规则";
+
+  const typePicker = document.createElement("details");
+  typePicker.className = "output-group-types";
+  const summary = document.createElement("summary");
+  const summaryLabel = document.createElement("span");
+  summaryLabel.className = "output-group-rule-description";
+  summaryLabel.textContent = "节点类型";
+  const selectedTypes = document.createElement("span");
+  selectedTypes.className = "output-group-selected-types";
+  const updateSelectedTypeLabel = () => {
+    const labels = OUTPUT_PROTOCOLS
+      .filter(item => group.matchProtocols.includes(item.value))
+      .map(item => item.label);
+    selectedTypes.textContent = labels.length ? labels.join("、") : "未选择";
+  };
+  updateSelectedTypeLabel();
+  summary.append(summaryLabel, selectedTypes);
+
+  const options = document.createElement("div");
+  options.className = "output-group-protocol-options";
+  for (const item of OUTPUT_PROTOCOLS) {
+    const optionLabel = document.createElement("label");
+    optionLabel.className = "output-group-protocol-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = item.value;
+    checkbox.checked = group.matchProtocols.includes(item.value);
+    checkbox.setAttribute("aria-label", `${group.name}：${item.label}`);
+    const optionName = document.createElement("span");
+    optionName.textContent = item.label;
+    checkbox.addEventListener("change", () => {
+      const wasOpen = typePicker.open;
+      const focusedProtocol = checkbox.value;
+      const selected = new Set(group.matchProtocols);
+      if (checkbox.checked) selected.add(item.value);
+      else selected.delete(item.value);
+      group.matchProtocols = OUTPUT_PROTOCOLS
+        .map(protocolOption => protocolOption.value)
+        .filter(protocolValue => selected.has(protocolValue));
+      saveOutputGroups();
+      renderOutputGroups();
+      const renderedCard = Array.from(dom.outputGroupList.querySelectorAll<HTMLElement>("[data-group-id]"))
+        .find(element => element.dataset.groupId === group.id);
+      const renderedPicker = renderedCard?.querySelector<HTMLDetailsElement>(".output-group-types");
+      if (renderedPicker) renderedPicker.open = wasOpen;
+      const renderedCheckbox = Array.from(renderedPicker?.querySelectorAll<HTMLInputElement>("input[type=checkbox]") ?? [])
+        .find(element => element.value === focusedProtocol);
+      renderedCheckbox?.focus();
+    });
+    optionLabel.append(checkbox, optionName);
+    options.append(optionLabel);
+  }
+  typePicker.append(summary, options);
+  rule.append(ruleLabel, typePicker);
+  const resultHeading = document.createElement("div");
+  resultHeading.className = "output-group-result-heading";
+  const resultTitle = document.createElement("strong");
+  resultTitle.textContent = "匹配节点";
+  const count = document.createElement("span");
+  count.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([uris.join("\n")]).size)}`;
+  resultHeading.append(resultTitle, count);
+
+  const output = document.createElement("textarea");
+  output.className = "output-textarea output-group-textarea";
+  output.readOnly = true;
+  output.spellcheck = false;
+  output.rows = 4;
+  output.value = uris.join("\n");
+  output.setAttribute("aria-label", `${group.name}分组的匹配节点 URI`);
+  output.hidden = uris.length === 0;
+
+  const empty = document.createElement("div");
+  empty.className = "output-group-result-empty";
+  empty.textContent = groupResultEmptyText(group);
+  empty.hidden = uris.length > 0;
+
+  const actions = document.createElement("div");
+  actions.className = "output-group-actions";
+  const copy = document.createElement("button");
+  copy.className = "secondary-button";
+  copy.type = "button";
+  copy.textContent = "复制本组";
+  copy.disabled = uris.length === 0;
+  copy.addEventListener("click", () => void copyOutputGroup(group.id));
+  const saveGroup = document.createElement("button");
+  saveGroup.className = "secondary-button";
+  saveGroup.type = "button";
+  saveGroup.textContent = "保存本组";
+  saveGroup.disabled = uris.length === 0;
+  saveGroup.addEventListener("click", () => void saveOutputGroup(group.id));
+  actions.append(copy, saveGroup);
+
+  card.append(heading, rule, resultHeading, output, empty, actions);
+  return card;
+}
+
+function renderUnmatchedOutput(uris: string[]): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "output-group-card output-unmatched-card";
+  card.setAttribute("role", "listitem");
+  const heading = document.createElement("div");
+  heading.className = "output-group-result-heading";
+  const title = document.createElement("strong");
+  title.textContent = "未匹配分组规则";
+  const count = document.createElement("span");
+  const value = uris.join("\n");
+  count.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([value]).size)}`;
+  heading.append(title, count);
+  const note = document.createElement("p");
+  note.className = "output-group-unmatched-note";
+  note.textContent = "这些节点没有命中任何分组，仍保留在全部输出中。";
+  const output = document.createElement("textarea");
+  output.className = "output-textarea output-group-textarea";
+  output.readOnly = true;
+  output.spellcheck = false;
+  output.rows = 4;
+  output.value = value;
+  output.setAttribute("aria-label", "未匹配分组规则的节点 URI");
+  const actions = document.createElement("div");
+  actions.className = "output-group-actions";
+  const copy = document.createElement("button");
+  copy.className = "secondary-button";
+  copy.type = "button";
+  copy.textContent = "复制未匹配节点";
+  copy.addEventListener("click", () => void copyUris(uris, "未匹配节点"));
+  actions.append(copy);
+  card.append(heading, note, output, actions);
+  return card;
+}
+
+function renderOutputGroups() {
+  dom.outputGroupList.replaceChildren();
+  dom.outputGroupEmpty.hidden = outputGroups.length > 0;
+  for (const [index, group] of outputGroups.entries()) {
+    dom.outputGroupList.append(renderOutputGroup(group, index));
+  }
+
+  const matchedProtocols = new Set(outputGroups.flatMap(group => group.matchProtocols));
+  const unmatched = outputEntries.filter(entry => !matchedProtocols.has(entry.protocol)).map(entry => entry.uri);
+  if (unmatched.length > 0) dom.outputGroupList.append(renderUnmatchedOutput(unmatched));
+
+  dom.outputOverview.textContent = `${outputUris.length} 个节点 · ${outputGroups.length} 个分组`;
+  dom.copyButton.disabled = outputUris.length === 0;
+  dom.saveButton.disabled = outputUris.length === 0;
+}
+
+function addOutputGroup() {
+  const protocol = OUTPUT_PROTOCOLS.find(item => !outputGroups.some(group => group.matchProtocols.includes(item.value)))?.value
+    ?? OUTPUT_PROTOCOLS[0].value;
+  const sameTypeCount = outputGroups.filter(group => group.matchProtocols.includes(protocol)).length;
+  const baseName = getProtocolLabel(protocol);
+  outputGroups.push({
+    id: createOutputGroupId(),
+    name: sameTypeCount ? `${baseName} ${sameTypeCount + 1}` : baseName,
+    matchProtocols: [protocol],
+  });
+  saveOutputGroups();
+  renderOutputGroups();
+}
+
 function aggregateResults(result: ConversionResult, logDiagnostics = true) {
-  outputUris = [...result.uris];
-  duplicateCount = result.stats.duplicates;
-  const allowed = new Set(result.encoded
+  outputEntries = result.encoded
     .filter(item => item.uri && (item.status === "complete" || (shouldIncludeLossyOutput() && item.status === "lossy")))
-    .map(item => item.uri as string));
+    .map(item => ({ protocol: item.node.protocol, uri: item.uri! }));
+  outputUris = outputEntries.map(item => item.uri);
+  duplicateCount = result.stats.duplicates;
+  const allowed = new Set(outputUris);
 
   for (const source of sourceResults) {
     const sourceId = source.kind === "local" ? "local" : source.sourceId;
@@ -555,12 +871,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
   dom.sourceCount.textContent = String(successfulSources);
   dom.duplicateCount.textContent = String(duplicateCount);
 
-  const hasOutput = outputUris.length > 0;
-  dom.output.value = outputUris.join("\n");
-  dom.outputSize.textContent = `${outputUris.length} 条 · ${formatBytes(new Blob([dom.output.value]).size)}`;
-  dom.outputArea.hidden = !hasOutput;
-  dom.emptyState.hidden = hasOutput;
-  if (!hasOutput) dom.emptyStateTitle.textContent = sourceResults.length > 0 ? "没有可用节点" : "等待输出";
+  renderOutputGroups();
   if (logDiagnostics) appendConversionDiagnostics(result);
 }
 
@@ -819,16 +1130,15 @@ async function startConversion() {
   }
 
   outputUris = [];
+  outputEntries = [];
   duplicateCount = 0;
   completedSources = sourceResults.filter(source => source.state === "error").length;
 
   dom.nodeCount.textContent = "0";
   dom.sourceCount.textContent = "0";
   dom.duplicateCount.textContent = "0";
-  dom.outputArea.hidden = true;
-  dom.emptyState.hidden = false;
-  dom.emptyStateTitle.textContent = "正在转换";
   setBusy(true);
+  renderOutputGroups();
   updateProgress(completedSources, totalSources);
 
   await runWithConcurrency(canFetchRemote ? input.urls : [], fetchConcurrency, async (url, index) => {
@@ -955,35 +1265,60 @@ async function copyText(value: string) {
   }
 }
 
-async function copyAll() {
-  if (outputUris.length === 0) return;
+function safeFilePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 48) || "group";
+}
+
+function defaultSaveName(groupName = "all"): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `chimera-subscriptions-${safeFilePart(groupName)}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
+}
+
+async function copyUris(uris: string[], label: string) {
+  if (uris.length === 0) return;
   try {
-    await copyText(dom.output.value);
-    showToast(`已复制 ${outputUris.length} 个节点 URI`);
+    await copyText(uris.join("\n"));
+    showToast(`已复制${label}的 ${uris.length} 个节点 URI`);
   } catch {
     showToast("复制失败，请手动选择文本框内容", true);
   }
 }
 
-function defaultSaveName(): string {
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `chimera-subscriptions-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
+async function copyOutputGroup(groupId: string) {
+  const group = outputGroups.find(item => item.id === groupId);
+  if (group) await copyUris(getOutputGroupUris(group), `“${group.name}”分组`);
 }
 
-async function saveAll() {
-  if (outputUris.length === 0) return;
+async function copyAll() {
+  await copyUris(outputUris, "全部输出");
+}
+
+async function saveUris(uris: string[], fileName: string, label: string) {
+  if (uris.length === 0) return;
   try {
     const path = await save({
-      defaultPath: defaultSaveName(),
+      defaultPath: defaultSaveName(fileName),
       filters: [{ name: "文本文件", extensions: ["txt"] }],
     });
     if (!path) return;
-    await invoke<string>("save_text_file", { path, content: dom.output.value });
-    showToast(`已保存 ${outputUris.length} 个节点 URI`);
+    await invoke<string>("save_text_file", { path, content: uris.join("\n") });
+    showToast(`已保存${label}的 ${uris.length} 个节点 URI`);
   } catch (error) {
     showToast(failureFrom(error).message || "保存文件失败", true);
   }
+}
+
+async function saveOutputGroup(groupId: string) {
+  const group = outputGroups.find(item => item.id === groupId);
+  if (!group) return;
+  const index = outputGroups.findIndex(item => item.id === groupId) + 1;
+  const protocolPart = group.matchProtocols.map(protocol => protocol).join("-") || "empty";
+  await saveUris(getOutputGroupUris(group), `${protocolPart}-${index}`, `“${group.name}”分组`);
+}
+
+async function saveAll() {
+  await saveUris(outputUris, "all", "全部输出");
 }
 
 function bindEvents() {
@@ -993,6 +1328,7 @@ function bindEvents() {
   });
   dom.clearLogButton.addEventListener("click", clearLog);
   dom.importFileButton.addEventListener("click", () => void importFile());
+  dom.addOutputGroupButton.addEventListener("click", addOutputGroup);
   dom.copyButton.addEventListener("click", () => void copyAll());
   dom.saveButton.addEventListener("click", () => void saveAll());
   document.addEventListener("keydown", event => {
@@ -1039,6 +1375,7 @@ function bindEvents() {
     if (!dom.validation.hidden) setValidation();
   });
 
+  renderOutputGroups();
   bindPanelResizers();
   applyPanelRatios();
 }
