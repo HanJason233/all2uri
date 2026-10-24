@@ -972,6 +972,19 @@ function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
   });
   heading.append(number, name, remove);
 
+  const ruleRow = document.createElement("div");
+  ruleRow.className = "output-group-rule-row";
+  const ruleSummary = document.createElement("span");
+  ruleSummary.className = "output-group-rule-summary";
+  const protocolSummary = group.matchProtocols.length
+    ? group.matchProtocols.map(getProtocolLabel).join(" / ")
+    : "未选择节点类型";
+  const regionSummary = group.matchCountries.length
+    ? group.matchCountries.map(countryNameForCode).join("、")
+    : "全部地区";
+  ruleSummary.textContent = `${protocolSummary} · ${regionSummary}`;
+  ruleSummary.title = `${protocolSummary} · ${regionSummary}`;
+
   const ruleButton = document.createElement("button");
   ruleButton.className = "output-group-rule-button";
   ruleButton.type = "button";
@@ -985,11 +998,13 @@ function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
   ruleLabel.textContent = "匹配规则";
   ruleButton.append(ruleIcon, ruleLabel);
   ruleButton.addEventListener("click", () => openOutputRuleDialog(group.id));
+  ruleRow.append(ruleSummary, ruleButton);
   const resultHeading = document.createElement("div");
   resultHeading.className = "output-group-result-heading";
   const resultTitle = document.createElement("strong");
   resultTitle.textContent = "匹配节点";
   const count = document.createElement("span");
+  count.className = "output-group-result-count";
   count.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([uris.join("\n")]).size)}`;
   resultHeading.append(resultTitle, count);
 
@@ -1023,7 +1038,12 @@ function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
   saveGroup.addEventListener("click", () => void saveOutputGroup(group.id));
   actions.append(copy, saveGroup);
 
-  card.append(heading, ruleButton, resultHeading, output, empty, actions);
+  card.append(heading, ruleRow, resultHeading);
+  if (uris.length > 0) {
+    card.append(output, actions);
+  } else {
+    card.append(empty);
+  }
   return card;
 }
 
