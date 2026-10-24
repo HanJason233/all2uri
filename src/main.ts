@@ -73,7 +73,6 @@ function getElement<T extends HTMLElement>(id: string): T {
 
 const dom = {
   urls: getElement<HTMLTextAreaElement>("subscription-urls"),
-  pasteButton: getElement<HTMLButtonElement>("paste-button"),
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
   settingsDialog: getElement<HTMLElement>("settings-dialog"),
   settingsBackdrop: getElement<HTMLDivElement>("settings-backdrop"),
@@ -433,23 +432,6 @@ function readImportInput(): DetectedImportInput | null {
   return detected;
 }
 
-// Windows 端使用剪贴板读取对应 Android 的剪贴板导入。
-async function pasteFromClipboard() {
-  if (running) return;
-  try {
-    const text = await navigator.clipboard.readText();
-    if (!text.trim()) {
-      showToast("剪贴板为空", true);
-      return;
-    }
-    dom.urls.value = text;
-    setValidation();
-    showToast("已从剪贴板粘贴");
-  } catch {
-    showToast("无法读取剪贴板，请使用 Ctrl+V 手动粘贴", true);
-  }
-}
-
 // 文件只作为文本来源，后续仍走同一套智能识别逻辑。
 async function importFile() {
   if (running) return;
@@ -552,7 +534,6 @@ function setBusy(busy: boolean) {
   running = busy;
   dom.convertButton.disabled = false;
   dom.urls.disabled = busy;
-  dom.pasteButton.disabled = busy;
   dom.importFileButton.disabled = busy;
   dom.userAgentSelect.disabled = busy;
   dom.customUserAgent.disabled = busy;
@@ -1060,7 +1041,6 @@ function bindEvents() {
     else void startConversion();
   });
   dom.clearLogButton.addEventListener("click", clearLog);
-  dom.pasteButton.addEventListener("click", () => void pasteFromClipboard());
   dom.importFileButton.addEventListener("click", () => void importFile());
   dom.copyButton.addEventListener("click", () => void copyAll());
   dom.saveButton.addEventListener("click", () => void saveAll());
