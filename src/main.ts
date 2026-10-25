@@ -472,6 +472,7 @@ const dom = {
   validation: getElement<HTMLDivElement>("validation-message"),
   userAgentSelect: getElement<HTMLSelectElement>("user-agent-select"),
   customUserAgent: getElement<HTMLInputElement>("custom-user-agent"),
+  remoteSubscriptionFetchEnabled: getElement<HTMLInputElement>("remote-subscription-fetch-enabled"),
   fetchConcurrency: getElement<HTMLInputElement>("fetch-concurrency"),
   fetchConcurrencyMode: getElement<HTMLSelectElement>("fetch-concurrency-mode"),
   maxRedirects: getElement<HTMLInputElement>("max-redirects"),
@@ -1292,6 +1293,7 @@ function setBusy(busy: boolean) {
   dom.fetchConcurrencyMode.disabled = busy;
   dom.maxRedirects.disabled = busy;
   dom.remoteTimeoutSeconds.disabled = busy;
+  dom.remoteSubscriptionFetchEnabled.disabled = busy;
   dom.regionLookupConcurrency.disabled = busy || regionLookupState === "running";
   dom.deduplicateOutput.disabled = busy;
   dom.includeLossyOutput.disabled = busy;
@@ -1857,17 +1859,26 @@ async function startConversion() {
 
   const input = readImportInput();
   if (!input) return;
+  const remoteUrls = dom.remoteSubscriptionFetchEnabled.checked ? input.urls : [];
+  const skippedRemoteCount = input.urls.length - remoteUrls.length;
+
+  if (input.local.length === 0 && remoteUrls.length === 0) {
+    dom.logList.replaceChildren();
+    appendLog(`远程订阅拉取已关闭，跳过 ${skippedRemoteCount} 个远程地址。`);
+    showToast("远程订阅拉取已关闭，没有可转换的本地内容", true);
+    return;
+  }
 
   let userAgent: string | null = null;
   let fetchConcurrency = MIN_FETCH_CONCURRENCY;
   let fetchConcurrencySetting: FetchConcurrencySetting | null = null;
   let maxRedirects = 0;
   let remoteTimeoutSeconds = DEFAULT_REMOTE_TIMEOUT_SECONDS;
-  if (input.urls.length > 0) {
+  if (remoteUrls.length > 0) {
     try {
       userAgent = resolveUserAgent();
       fetchConcurrencySetting = resolveFetchConcurrencySetting();
-      fetchConcurrency = resolveFetchConcurrency(fetchConcurrencySetting, input.urls.length);
+      fetchConcurrency = resolveFetchConcurrency(fetchConcurrencySetting, remoteUrls.length);
       maxRedirects = resolveMaxRedirects();
       remoteTimeoutSeconds = resolveRemoteTimeoutSeconds();
     } catch (error) {
@@ -1921,9 +1932,9 @@ async function startConversion() {
     ));
   }
   const remoteOffset = hasLocal ? 1 : 0;
-  const totalSources = input.urls.length + remoteOffset;
+  const totalSources = remoteUrls.length + remoteOffset;
   const remainingBatchBytes = Math.max(0, MAX_BATCH_INPUT_BYTES - localBytes);
-  const canFetchRemote = input.urls.length === 0 || remainingBatchBytes >= MIN_REMOTE_BATCH_BYTES;
+  const canFetchRemote = remoteUrls.length === 0 || remainingBatchBytes >= MIN_REMOTE_BATCH_BYTES;
   sourceResults = [];
   if (hasLocal) {
     sourceResults.push({
@@ -1937,7 +1948,7 @@ async function startConversion() {
       bytes: localBytes,
     });
   }
-  sourceResults.push(...input.urls.map((url, index) => ({
+  sourceResults.push(...remoteUrls.map((url, index) => ({
     sourceId: `remote-${index + 1}`,
     kind: "remote" as const,
     url,
@@ -1948,8 +1959,11 @@ async function startConversion() {
 
   dom.logList.replaceChildren();
   appendLog(`开始处理：${totalSources} 个来源`);
-  if (canFetchRemote && input.urls.length > 0 && fetchConcurrencySetting) {
-    appendLog(`远程请求并发：${describeFetchConcurrency(fetchConcurrencySetting, input.urls.length, fetchConcurrency)}`);
+  if (skippedRemoteCount > 0) {
+    appendLog(`远程订阅拉取已关闭，跳过 ${skippedRemoteCount} 个远程地址。`);
+  }
+  if (canFetchRemote && remoteUrls.length > 0 && fetchConcurrencySetting) {
+    appendLog(`远程请求并发：${describeFetchConcurrency(fetchConcurrencySetting, remoteUrls.length, fetchConcurrency)}`);
   }
   if (!hasLocal && (input.fragmentsTruncated || input.uriLimitReached || input.decodedTooLarge > 0 || input.depthLimited)) {
     appendLog("输入展开或 URI 提取触及资源上限，部分内容已跳过。", true);
@@ -1957,7 +1971,7 @@ async function startConversion() {
   if (hasLocal) {
     appendLog("本地内容：已加入统一转换队列");
   }
-  if (input.urls.length > 0 && !canFetchRemote) {
+  if (remoteUrls.length > 0 && !canFetchRemote) {
     for (const source of sourceResults.slice(remoteOffset)) {
       source.state = "error";
       source.errorCode = "batch_input_too_large";
@@ -1982,7 +1996,7 @@ async function startConversion() {
   renderOutputFilter();
   updateProgress(completedSources, totalSources);
 
-  await runWithConcurrency(canFetchRemote ? input.urls : [], fetchConcurrency, async (url, index) => {
+  await runWithConcurrency(canFetchRemote ? remoteUrls : [], fetchConcurrency, async (url, index) => {
     const sourceIndex = remoteOffset + index;
     const source = sourceResults[sourceIndex];
     appendLog(`远程订阅 ${displayUrl(url)}：开始拉取`);
