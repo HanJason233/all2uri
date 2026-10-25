@@ -366,6 +366,9 @@ function getElement<T extends HTMLElement>(id: string): T {
 
 const dom = {
   urls: getElement<HTMLTextAreaElement>("subscription-urls"),
+  inputSettingsButton: getElement<HTMLButtonElement>("input-settings-button"),
+  inputSettingsDialog: getElement<HTMLDialogElement>("input-settings-dialog"),
+  inputSettingsDialogClose: getElement<HTMLButtonElement>("input-settings-dialog-close"),
   importClipboardButton: getElement<HTMLButtonElement>("import-clipboard-button"),
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
   importQrButton: getElement<HTMLButtonElement>("import-qr-button"),
@@ -406,6 +409,9 @@ const dom = {
   processingStatus: getElement<HTMLSpanElement>("processing-status"),
   logList: getElement<HTMLDivElement>("log-list"),
   clearLogButton: getElement<HTMLButtonElement>("clear-log-button"),
+  outputSettingsButton: getElement<HTMLButtonElement>("output-settings-button"),
+  outputSettingsDialog: getElement<HTMLDialogElement>("output-settings-dialog"),
+  outputSettingsDialogClose: getElement<HTMLButtonElement>("output-settings-dialog-close"),
   outputFilterButton: getElement<HTMLButtonElement>("output-filter-button"),
   outputColumnResetButton: getElement<HTMLButtonElement>("output-column-reset-button"),
   outputFilterSummary: getElement<HTMLParagraphElement>("output-filter-summary"),
@@ -450,7 +456,7 @@ interface OutputColumnResizeState {
 
 const MIN_PANEL_WIDTH = 200;
 const SPLITTER_WIDTH = 13;
-const DEFAULT_PANEL_RATIOS = [0.25, 0.34, 0.41];
+const DEFAULT_PANEL_RATIOS = [0.3, 0.7];
 
 let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
@@ -521,7 +527,6 @@ function clampPanelRatios(ratios: number[], availableWidth: number): number[] {
 function applyPanelRatios() {
   dom.workspace.style.setProperty("--panel-a", `${panelRatios[0]}fr`);
   dom.workspace.style.setProperty("--panel-b", `${panelRatios[1]}fr`);
-  dom.workspace.style.setProperty("--panel-c", `${panelRatios[2]}fr`);
 }
 
 function adjustPanelRatios(index: number, delta: number) {
@@ -1980,6 +1985,26 @@ async function saveFilteredOutput() {
 }
 
 function bindEvents() {
+  const settingsDialogs = [
+    {
+      button: dom.inputSettingsButton,
+      dialog: dom.inputSettingsDialog,
+      closeButton: dom.inputSettingsDialogClose,
+    },
+    {
+      button: dom.outputSettingsButton,
+      dialog: dom.outputSettingsDialog,
+      closeButton: dom.outputSettingsDialogClose,
+    },
+  ];
+  settingsDialogs.forEach(({ button, dialog, closeButton }) => {
+    button.addEventListener("click", () => dialog.showModal());
+    closeButton.addEventListener("click", () => dialog.close());
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) dialog.close();
+    });
+  });
+
   dom.convertButton.addEventListener("click", () => {
     if (running) cancelConversion();
     else void startConversion();

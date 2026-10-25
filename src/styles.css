@@ -89,12 +89,11 @@ select:focus-visible {
 }
 
 .workspace {
-  --panel-a: 0.25fr;
-  --panel-b: 0.34fr;
-  --panel-c: 0.41fr;
+  --panel-a: 0.3fr;
+  --panel-b: 0.7fr;
   display: grid;
   flex: 1;
-  grid-template-columns: minmax(200px, var(--panel-a)) 13px minmax(200px, var(--panel-b)) 13px minmax(200px, var(--panel-c));
+  grid-template-columns: minmax(200px, var(--panel-a)) 13px minmax(200px, var(--panel-b));
   gap: 0;
   align-items: stretch;
   width: 100%;
@@ -153,14 +152,8 @@ body.resizing-panels {
 }
 
 .input-panel,
-.processing-panel,
 .output-panel {
   flex-direction: column;
-}
-
-.processing-panel {
-  container-name: settings-panel;
-  container-type: inline-size;
 }
 
 .panel-header {
@@ -176,6 +169,7 @@ body.resizing-panels {
 
 .panel-title-group {
   display: flex;
+  gap: 10px;
   align-items: center;
 }
 
@@ -184,6 +178,12 @@ body.resizing-panels {
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 0;
+}
+
+.panel-settings-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .panel-header-actions {
@@ -339,6 +339,15 @@ body.resizing-panels {
   overflow-y: auto;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
+}
+
+.output-rule-dialog.settings-dialog {
+  width: min(600px, calc(100vw - 32px));
+  max-width: 600px;
+}
+
+.settings-dialog-content .settings-content {
+  padding: 0 22px 18px;
 }
 
 .settings-section {
@@ -1468,7 +1477,6 @@ body.resizing-output-columns * {
     display: none;
   }
 
-  .processing-panel,
   .output-panel {
     border-top: 1px solid var(--border);
   }

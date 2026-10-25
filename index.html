@@ -16,9 +16,11 @@
           <section class="panel input-panel" id="input-panel" aria-labelledby="input-title">
             <div class="panel-header">
               <div class="panel-title-group">
-                <div>
-                  <h2 id="input-title">输入</h2>
-                </div>
+                <h2 id="input-title">输入</h2>
+                <button class="secondary-button panel-settings-button" id="input-settings-button" type="button" aria-haspopup="dialog" aria-controls="input-settings-dialog">输入设置</button>
+              </div>
+              <div class="panel-header-actions">
+                <span class="panel-status" id="processing-status" data-state="idle" role="status" hidden></span>
               </div>
             </div>
 
@@ -50,109 +52,7 @@
             </div>
           </section>
 
-          <div class="panel-resizer" data-resizer="0" role="separator" aria-orientation="vertical" aria-label="调整输入和处理版块宽度" title="拖动调整宽度，双击恢复均分" tabindex="0"></div>
-
-          <section class="panel processing-panel" id="processing-panel" aria-labelledby="processing-title">
-            <div class="panel-header">
-              <div class="panel-title-group">
-                <div>
-                  <h2 id="processing-title">设置</h2>
-                </div>
-              </div>
-              <div class="panel-header-actions">
-                <span class="panel-status" id="processing-status" data-state="idle" role="status" hidden></span>
-              </div>
-            </div>
-
-            <div class="settings-content" role="group" aria-label="应用设置">
-              <section class="settings-section" aria-labelledby="settings-request-title">
-                <h3 id="settings-request-title">订阅请求</h3>
-                <label class="settings-row">
-                  <span>User-Agent</span>
-                  <select id="user-agent-select" class="settings-control settings-select">
-                    <option value="auto">自动识别（推荐）</option>
-                    <option value="nekobox">NekoBox / Clash Meta</option>
-                    <option value="sing-box">sing-box</option>
-                    <option value="clash">Clash Meta</option>
-                    <option value="v2rayn">v2rayN</option>
-                    <option value="custom">自定义</option>
-                  </select>
-                </label>
-                <input
-                  id="custom-user-agent"
-                  class="settings-control settings-text"
-                  type="text"
-                  maxlength="512"
-                  spellcheck="false"
-                  autocomplete="off"
-                  placeholder="例如：MyClient/1.0"
-                  hidden
-                />
-              </section>
-
-              <section class="settings-section" aria-labelledby="settings-limits-title">
-                <h3 id="settings-limits-title">请求限制</h3>
-                <label class="settings-row">
-                  <span>最大重定向</span>
-                  <span class="settings-value">
-                    <input id="max-redirects" class="settings-control settings-number" type="number" min="0" max="50" step="1" value="10" inputmode="numeric" />
-                    <span>次</span>
-                  </span>
-                </label>
-                <label class="settings-row">
-                  <span>并发请求</span>
-                  <span class="settings-value">
-                    <input id="fetch-concurrency" class="settings-control settings-number" type="number" min="1" max="20" step="1" value="3" inputmode="numeric" />
-                    <select id="fetch-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="并发单位">
-                      <option value="fixed">个</option>
-                      <option value="percent">%</option>
-                    </select>
-                  </span>
-                </label>
-              </section>
-
-              <section class="settings-section" aria-labelledby="settings-security-title">
-                <h3 id="settings-security-title">连接</h3>
-                <label class="settings-row">
-                  <span>允许本机及局域网</span>
-                  <input class="settings-checkbox" id="allow-local-network" type="checkbox" />
-                </label>
-                <label class="settings-row">
-                  <span>跳过证书验证</span>
-                  <input class="settings-checkbox" id="skip-certificate-verification" type="checkbox" />
-                </label>
-                <p class="settings-warning" id="skip-certificate-note" hidden>证书校验已关闭，请确认订阅源可信。</p>
-              </section>
-
-              <section class="settings-section" aria-labelledby="settings-output-title">
-                <h3 id="settings-output-title">输出</h3>
-                <label class="settings-row">
-                  <span>自动去重</span>
-                  <input class="settings-checkbox" id="deduplicate-output" type="checkbox" checked />
-                </label>
-                <label class="settings-row">
-                  <span>包含有损结果</span>
-                  <input class="settings-checkbox" id="include-lossy-output" type="checkbox" />
-                </label>
-              </section>
-
-              <section class="settings-section" aria-labelledby="settings-region-lookup-title">
-                <h3 id="settings-region-lookup-title">地区识别</h3>
-                <div class="region-lookup-methods" id="region-lookup-methods" role="group" aria-label="地区查询方式"></div>
-                <div class="settings-row settings-database-row">
-                  <span>GeoIP 数据文件</span>
-                  <div class="settings-inline-actions">
-                    <span class="region-database-name" id="geoip-database-name">内置 geoip.dat</span>
-                    <button class="settings-button" id="choose-geoip-database" type="button">选择</button>
-                    <button class="settings-button" id="clear-geoip-database" type="button" disabled>恢复</button>
-                  </div>
-                </div>
-              </section>
-            </div>
-
-          </section>
-
-          <div class="panel-resizer" data-resizer="1" role="separator" aria-orientation="vertical" aria-label="调整处理和输出版块宽度" title="拖动调整宽度，双击恢复均分" tabindex="0"></div>
+          <div class="panel-resizer" data-resizer="0" role="separator" aria-orientation="vertical" aria-label="调整输入和输出版块宽度" title="拖动调整宽度，双击恢复均分" tabindex="0"></div>
 
           <section class="panel output-panel" id="output-panel" aria-labelledby="result-title">
             <div class="panel-header">
@@ -167,6 +67,7 @@
                   <span><strong id="source-count">0</strong> 来源</span>
                   <span><strong id="duplicate-count">0</strong> 重复</span>
                 </div>
+                <button class="secondary-button panel-settings-button" id="output-settings-button" type="button" aria-haspopup="dialog" aria-controls="output-settings-dialog">输出设置</button>
               </div>
             </div>
 
@@ -249,6 +150,116 @@
         </div>
       </section>
     </div>
+
+    <dialog class="output-rule-dialog settings-dialog" id="input-settings-dialog" aria-labelledby="input-settings-dialog-title">
+      <div class="output-rule-dialog-content settings-dialog-content">
+        <header class="output-rule-dialog-header">
+          <div>
+            <h2 id="input-settings-dialog-title">输入设置</h2>
+            <p>管理订阅请求方式、并发限制和连接选项。</p>
+          </div>
+          <button class="output-rule-dialog-close" id="input-settings-dialog-close" type="button" aria-label="关闭输入设置">×</button>
+        </header>
+        <div class="settings-content" role="group" aria-label="输入设置">
+          <section class="settings-section" aria-labelledby="settings-request-title">
+            <h3 id="settings-request-title">订阅请求</h3>
+            <label class="settings-row">
+              <span>User-Agent</span>
+              <select id="user-agent-select" class="settings-control settings-select">
+                <option value="auto">自动识别（推荐）</option>
+                <option value="nekobox">NekoBox / Clash Meta</option>
+                <option value="sing-box">sing-box</option>
+                <option value="clash">Clash Meta</option>
+                <option value="v2rayn">v2rayN</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <input
+              id="custom-user-agent"
+              class="settings-control settings-text"
+              type="text"
+              maxlength="512"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="例如：MyClient/1.0"
+              hidden
+            />
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-limits-title">
+            <h3 id="settings-limits-title">请求限制</h3>
+            <label class="settings-row">
+              <span>最大重定向</span>
+              <span class="settings-value">
+                <input id="max-redirects" class="settings-control settings-number" type="number" min="0" max="50" step="1" value="10" inputmode="numeric" />
+                <span>次</span>
+              </span>
+            </label>
+            <label class="settings-row">
+              <span>并发请求</span>
+              <span class="settings-value">
+                <input id="fetch-concurrency" class="settings-control settings-number" type="number" min="1" max="20" step="1" value="3" inputmode="numeric" />
+                <select id="fetch-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="并发单位">
+                  <option value="fixed">个</option>
+                  <option value="percent">%</option>
+                </select>
+              </span>
+            </label>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-security-title">
+            <h3 id="settings-security-title">连接</h3>
+            <label class="settings-row">
+              <span>允许本机及局域网</span>
+              <input class="settings-checkbox" id="allow-local-network" type="checkbox" />
+            </label>
+            <label class="settings-row">
+              <span>跳过证书验证</span>
+              <input class="settings-checkbox" id="skip-certificate-verification" type="checkbox" />
+            </label>
+            <p class="settings-warning" id="skip-certificate-note" hidden>证书校验已关闭，请确认订阅源可信。</p>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="output-rule-dialog settings-dialog" id="output-settings-dialog" aria-labelledby="output-settings-dialog-title">
+      <div class="output-rule-dialog-content settings-dialog-content">
+        <header class="output-rule-dialog-header">
+          <div>
+            <h2 id="output-settings-dialog-title">输出设置</h2>
+            <p>管理转换结果、地区识别方式和 GeoIP 数据文件。</p>
+          </div>
+          <button class="output-rule-dialog-close" id="output-settings-dialog-close" type="button" aria-label="关闭输出设置">×</button>
+        </header>
+        <div class="settings-content" role="group" aria-label="输出设置">
+          <section class="settings-section" aria-labelledby="settings-output-title">
+            <h3 id="settings-output-title">输出结果</h3>
+            <label class="settings-row">
+              <span>自动去重</span>
+              <input class="settings-checkbox" id="deduplicate-output" type="checkbox" checked />
+            </label>
+            <label class="settings-row">
+              <span>包含有损结果</span>
+              <input class="settings-checkbox" id="include-lossy-output" type="checkbox" />
+            </label>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-region-lookup-title">
+            <h3 id="settings-region-lookup-title">地区识别</h3>
+            <div class="region-lookup-methods" id="region-lookup-methods" role="group" aria-label="地区查询方式"></div>
+            <div class="settings-row settings-database-row">
+              <span>GeoIP 数据文件</span>
+              <div class="settings-inline-actions">
+                <span class="region-database-name" id="geoip-database-name">内置 geoip.dat</span>
+                <button class="settings-button" id="choose-geoip-database" type="button">选择</button>
+                <button class="settings-button" id="clear-geoip-database" type="button" disabled>恢复</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </dialog>
 
     <dialog class="output-rule-dialog" id="output-filter-dialog" aria-labelledby="output-filter-dialog-title">
       <div class="output-rule-dialog-content">
