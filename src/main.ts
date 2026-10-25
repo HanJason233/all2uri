@@ -39,6 +39,7 @@ interface CategorizedOutput {
   id: string;
   name: string;
   server: string;
+  port: number;
   entryIps: string[] | null;
   protocol: ProxyProtocol;
   uri: string;
@@ -105,7 +106,7 @@ const OUTPUT_COLUMN_WIDTHS_STORAGE_KEY = "all2uri.output-column-widths";
 const LEGACY_OUTPUT_COLUMN_RATIOS_STORAGE_KEY = "all2uri.output-column-ratios";
 const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
-const OUTPUT_COLUMN_DEFAULT_WIDTHS = [135, 76, 160, 90, 74, 65];
+const OUTPUT_COLUMN_DEFAULT_WIDTHS = [42, 84, 180, 180, 72, 100, 88, 74];
 const OUTPUT_COLUMN_DEFAULT_TOTAL = OUTPUT_COLUMN_DEFAULT_WIDTHS.reduce((total, width) => total + width, 0);
 const OUTPUT_COLUMN_MIN_WIDTH = 20;
 const USER_AGENT_PRESETS: Record<string, string> = {
@@ -1303,28 +1304,34 @@ function saveOutputFilterDialog() {
   dom.outputFilterButton.focus();
 }
 
-function renderOutputTableRow(entry: CategorizedOutput): HTMLTableRowElement {
+function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTableRowElement {
   const row = document.createElement("tr");
   row.dataset.nodeId = entry.id;
 
+  const indexCell = document.createElement("td");
+  indexCell.className = "output-table-index";
+  indexCell.textContent = `${index + 1}`;
+
+  const protocolCell = document.createElement("td");
+  protocolCell.textContent = getProtocolLabel(entry.protocol);
+
   const nameCell = document.createElement("td");
   const name = document.createElement("strong");
-  name.className = "output-table-primary";
+  name.className = "output-table-primary output-table-truncate";
   name.textContent = entry.name.trim() || "未命名节点";
   name.title = name.textContent;
   nameCell.append(name);
 
-  const entryIpCell = document.createElement("td");
-  const entryIp = document.createElement("span");
-  entryIp.className = "output-table-truncate output-table-ip";
-  entryIp.textContent = entry.entryIps?.length
-    ? entry.entryIps.join(", ")
-    : entry.entryIps === null && cloudflareDetectionState === "running" ? "解析中" : "—";
-  entryIp.title = entry.entryIps?.length ? entry.entryIps.join("\n") : entry.server || entryIp.textContent;
-  entryIpCell.append(entryIp);
+  const addressCell = document.createElement("td");
+  const address = document.createElement("span");
+  address.className = "output-table-truncate output-table-ip";
+  address.textContent = entry.server || "—";
+  address.title = entry.server;
+  addressCell.append(address);
 
-  const protocolCell = document.createElement("td");
-  protocolCell.textContent = getProtocolLabel(entry.protocol);
+  const portCell = document.createElement("td");
+  portCell.className = "output-table-port";
+  portCell.textContent = `${entry.port}`;
 
   const regionCell = document.createElement("td");
   const region = document.createElement("span");
@@ -1365,7 +1372,7 @@ function renderOutputTableRow(entry: CategorizedOutput): HTMLTableRowElement {
   fillerCell.className = "output-table-filler";
   fillerCell.setAttribute("aria-hidden", "true");
 
-  row.append(nameCell, protocolCell, entryIpCell, regionCell, entryCell, actionCell, fillerCell);
+  row.append(indexCell, protocolCell, nameCell, addressCell, portCell, regionCell, entryCell, actionCell, fillerCell);
   return row;
 }
 
@@ -1376,7 +1383,7 @@ function renderOutputFilter() {
   const summary = outputFilterSummaryText();
 
   dom.outputTableBody.replaceChildren();
-  for (const entry of filteredEntries) dom.outputTableBody.append(renderOutputTableRow(entry));
+  filteredEntries.forEach((entry, index) => dom.outputTableBody.append(renderOutputTableRow(entry, index)));
   dom.outputTableWrap.hidden = false;
   dom.outputFilterCount.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([value]).size)}`;
   dom.outputFilterSummary.textContent = summary;
@@ -1501,6 +1508,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
       id: `${item.node.id}-${index}`,
       name: item.node.name,
       server: item.node.server,
+      port: item.node.port,
       entryIps: null,
       protocol: item.node.protocol,
       uri: item.uri!,

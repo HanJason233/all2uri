@@ -981,6 +981,19 @@ body.resizing-output-columns * {
   font-weight: 600;
 }
 
+.output-table-index {
+  color: var(--text-muted) !important;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.output-table-port {
+  color: var(--text-secondary);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .output-table-ip {
   color: var(--text-secondary);
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
