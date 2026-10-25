@@ -236,11 +236,29 @@
               <span>包含有损结果</span>
               <input class="settings-checkbox" id="include-lossy-output" type="checkbox" />
             </label>
+            <label class="settings-row">
+              <span>CF 入口检测</span>
+              <input class="settings-checkbox" id="cloudflare-detection-enabled" type="checkbox" checked />
+            </label>
+            <label class="settings-row">
+              <span>CF 检测并发</span>
+              <span class="settings-value">
+                <input id="cloudflare-detection-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="64" inputmode="numeric" />
+                <span>个</span>
+              </span>
+            </label>
           </section>
 
           <section class="settings-section" aria-labelledby="settings-region-lookup-title">
             <h3 id="settings-region-lookup-title">地区识别</h3>
             <div class="region-lookup-methods" id="region-lookup-methods" role="group" aria-label="地区查询方式"></div>
+            <label class="settings-row">
+              <span>地区查询并发</span>
+              <span class="settings-value">
+                <input id="region-lookup-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="8" inputmode="numeric" />
+                <span>个</span>
+              </span>
+            </label>
             <div class="settings-row settings-database-row">
               <span>GeoIP 数据文件</span>
               <div class="settings-inline-actions">

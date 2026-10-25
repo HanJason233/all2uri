@@ -82,6 +82,12 @@ const MAX_REDIRECTS = 50;
 const MIN_REMOTE_TIMEOUT_SECONDS = 1;
 const DEFAULT_REMOTE_TIMEOUT_SECONDS = 30;
 const MAX_REMOTE_TIMEOUT_SECONDS = 600;
+const MIN_CLOUDFLARE_DETECTION_CONCURRENCY = 1;
+const DEFAULT_CLOUDFLARE_DETECTION_CONCURRENCY = 64;
+const MAX_CLOUDFLARE_DETECTION_CONCURRENCY = 512;
+const MIN_REGION_LOOKUP_CONCURRENCY = 1;
+const DEFAULT_REGION_LOOKUP_CONCURRENCY = 8;
+const MAX_REGION_LOOKUP_CONCURRENCY = 512;
 const MAX_BATCH_INPUT_BYTES = 64 * 1024 * 1024;
 const MIN_REMOTE_BATCH_BYTES = 1024 * 1024;
 type FetchConcurrencyMode = "fixed" | "percent";
@@ -111,7 +117,10 @@ const OUTPUT_FILTER_STORAGE_KEY = "all2uri.output-filter";
 const OUTPUT_COLUMN_WIDTHS_STORAGE_KEY = "all2uri.output-column-widths";
 const LEGACY_OUTPUT_COLUMN_RATIOS_STORAGE_KEY = "all2uri.output-column-ratios";
 const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
+const REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency";
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
+const CLOUDFLARE_DETECTION_ENABLED_STORAGE_KEY = "all2uri.cloudflare-detection-enabled";
+const CLOUDFLARE_DETECTION_CONCURRENCY_STORAGE_KEY = "all2uri.cloudflare-detection-concurrency";
 const OUTPUT_COLUMN_DEFAULT_WIDTHS = [42, 84, 180, 180, 72, 100, 88, 74];
 const OUTPUT_COLUMN_DEFAULT_TOTAL = OUTPUT_COLUMN_DEFAULT_WIDTHS.reduce((total, width) => total + width, 0);
 const OUTPUT_COLUMN_MIN_WIDTH = 20;
@@ -152,6 +161,41 @@ function loadRegionLookupMethods(): RegionLookupMethod[] {
     return Array.isArray(parsed) ? [...new Set(parsed.filter(isRegionLookupMethod))] : [...DEFAULT_REGION_LOOKUP_METHODS];
   } catch {
     return [...DEFAULT_REGION_LOOKUP_METHODS];
+  }
+}
+
+function loadCloudflareDetectionEnabled(): boolean {
+  try {
+    const stored = window.localStorage.getItem(CLOUDFLARE_DETECTION_ENABLED_STORAGE_KEY);
+    return stored === null ? true : stored === "true";
+  } catch {
+    return true;
+  }
+}
+
+function loadCloudflareDetectionConcurrency(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(CLOUDFLARE_DETECTION_CONCURRENCY_STORAGE_KEY));
+    return Number.isInteger(stored)
+      && stored >= MIN_CLOUDFLARE_DETECTION_CONCURRENCY
+      && stored <= MAX_CLOUDFLARE_DETECTION_CONCURRENCY
+      ? stored
+      : DEFAULT_CLOUDFLARE_DETECTION_CONCURRENCY;
+  } catch {
+    return DEFAULT_CLOUDFLARE_DETECTION_CONCURRENCY;
+  }
+}
+
+function loadRegionLookupConcurrency(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(REGION_LOOKUP_CONCURRENCY_STORAGE_KEY));
+    return Number.isInteger(stored)
+      && stored >= MIN_REGION_LOOKUP_CONCURRENCY
+      && stored <= MAX_REGION_LOOKUP_CONCURRENCY
+      ? stored
+      : DEFAULT_REGION_LOOKUP_CONCURRENCY;
+  } catch {
+    return DEFAULT_REGION_LOOKUP_CONCURRENCY;
   }
 }
 
@@ -264,6 +308,30 @@ function saveRegionLookupMethods() {
     window.localStorage.setItem(REGION_LOOKUP_METHODS_STORAGE_KEY, JSON.stringify(regionLookupMethods));
   } catch {
     // 查询规则仍可在当前会话中使用；存储不可用时忽略持久化错误。
+  }
+}
+
+function saveCloudflareDetectionEnabled() {
+  try {
+    window.localStorage.setItem(CLOUDFLARE_DETECTION_ENABLED_STORAGE_KEY, String(cloudflareDetectionEnabled));
+  } catch {
+    return;
+  }
+}
+
+function saveCloudflareDetectionConcurrency() {
+  try {
+    window.localStorage.setItem(CLOUDFLARE_DETECTION_CONCURRENCY_STORAGE_KEY, String(cloudflareDetectionConcurrency));
+  } catch {
+    return;
+  }
+}
+
+function saveRegionLookupConcurrency() {
+  try {
+    window.localStorage.setItem(REGION_LOOKUP_CONCURRENCY_STORAGE_KEY, String(regionLookupConcurrency));
+  } catch {
+    return;
   }
 }
 
@@ -417,11 +485,14 @@ const dom = {
   maxRedirects: getElement<HTMLInputElement>("max-redirects"),
   remoteTimeoutSeconds: getElement<HTMLInputElement>("remote-timeout-seconds"),
   regionLookupMethods: getElement<HTMLDivElement>("region-lookup-methods"),
+  regionLookupConcurrency: getElement<HTMLInputElement>("region-lookup-concurrency"),
   geoIpDatabaseName: getElement<HTMLSpanElement>("geoip-database-name"),
   chooseGeoIpDatabaseButton: getElement<HTMLButtonElement>("choose-geoip-database"),
   clearGeoIpDatabaseButton: getElement<HTMLButtonElement>("clear-geoip-database"),
   deduplicateOutput: getElement<HTMLInputElement>("deduplicate-output"),
   includeLossyOutput: getElement<HTMLInputElement>("include-lossy-output"),
+  cloudflareDetectionEnabled: getElement<HTMLInputElement>("cloudflare-detection-enabled"),
+  cloudflareDetectionConcurrency: getElement<HTMLInputElement>("cloudflare-detection-concurrency"),
   skipCertificateVerification: getElement<HTMLInputElement>("skip-certificate-verification"),
   skipCertificateNote: getElement<HTMLParagraphElement>("skip-certificate-note"),
   allowLocalNetwork: getElement<HTMLInputElement>("allow-local-network"),
@@ -492,11 +563,14 @@ let outputUris: string[] = [];
 let outputEntries: CategorizedOutput[] = [];
 let outputFilter = loadOutputFilter();
 let regionLookupMethods = loadRegionLookupMethods();
+let regionLookupConcurrency = loadRegionLookupConcurrency();
 let geoIpDatabasePath = loadGeoIpDatabasePath();
+let cloudflareDetectionEnabled = loadCloudflareDetectionEnabled();
 let regionLookupState: "idle" | "running" | "done" | "error" = "idle";
 let regionLookupRunId = 0;
 let cloudflareDetectionState: "idle" | "running" | "done" | "error" = "idle";
 let cloudflareDetectionRunId = 0;
+let cloudflareDetectionConcurrency = loadCloudflareDetectionConcurrency();
 let draftFilterProtocols: ProxyProtocol[] = [];
 let draftFilterProtocolsEnabled = false;
 let draftFilterCountries: string[] = [];
@@ -1160,6 +1234,59 @@ function shouldIncludeLossyOutput(): boolean {
   return dom.includeLossyOutput.checked;
 }
 
+function updateCloudflareDetectionSetting(enabled: boolean) {
+  if (cloudflareDetectionEnabled === enabled) return;
+  cloudflareDetectionEnabled = enabled;
+  saveCloudflareDetectionEnabled();
+  if (enabled) {
+    cloudflareDetectionState = "idle";
+  } else {
+    cloudflareDetectionRunId += 1;
+    cloudflareDetectionState = "idle";
+    for (const entry of outputEntries) {
+      entry.isCloudflare = null;
+      entry.entryIps = null;
+    }
+  }
+  updateOutputFilterDialogSummaries();
+  renderOutputFilter();
+  if (enabled) void enrichOutputCloudflare();
+}
+
+function updateCloudflareDetectionConcurrency() {
+  const value = dom.cloudflareDetectionConcurrency.valueAsNumber;
+  if (!Number.isInteger(value)
+    || value < MIN_CLOUDFLARE_DETECTION_CONCURRENCY
+    || value > MAX_CLOUDFLARE_DETECTION_CONCURRENCY) {
+    dom.cloudflareDetectionConcurrency.value = String(cloudflareDetectionConcurrency);
+    return;
+  }
+  if (cloudflareDetectionConcurrency === value) return;
+  cloudflareDetectionConcurrency = value;
+  saveCloudflareDetectionConcurrency();
+  if (cloudflareDetectionEnabled && outputEntries.length > 0 && cloudflareDetectionState !== "running") {
+    cloudflareDetectionState = "idle";
+    void enrichOutputCloudflare();
+  }
+}
+
+function updateRegionLookupConcurrency() {
+  const value = dom.regionLookupConcurrency.valueAsNumber;
+  if (!Number.isInteger(value)
+    || value < MIN_REGION_LOOKUP_CONCURRENCY
+    || value > MAX_REGION_LOOKUP_CONCURRENCY) {
+    dom.regionLookupConcurrency.value = String(regionLookupConcurrency);
+    return;
+  }
+  if (regionLookupConcurrency === value) return;
+  regionLookupConcurrency = value;
+  saveRegionLookupConcurrency();
+  if (!running && outputEntries.length > 0 && regionLookupState !== "running") {
+    regionLookupState = "idle";
+    void enrichOutputRegions();
+  }
+}
+
 function refreshForOutputSettingChange() {
   if (!running && activeSourceDocuments.length > 0) void refreshConversion();
 }
@@ -1183,8 +1310,11 @@ function setBusy(busy: boolean) {
   dom.fetchConcurrencyMode.disabled = busy;
   dom.maxRedirects.disabled = busy;
   dom.remoteTimeoutSeconds.disabled = busy;
+  dom.regionLookupConcurrency.disabled = busy || regionLookupState === "running";
   dom.deduplicateOutput.disabled = busy;
   dom.includeLossyOutput.disabled = busy;
+  dom.cloudflareDetectionEnabled.disabled = busy;
+  dom.cloudflareDetectionConcurrency.disabled = busy || cloudflareDetectionState === "running";
   dom.skipCertificateVerification.disabled = busy;
   dom.allowLocalNetwork.disabled = busy;
   dom.convertButton.classList.toggle("busy", busy);
@@ -1217,9 +1347,9 @@ function appendConversionDiagnostics(result: ConversionResult) {
 function outputEntryMatchesFilter(entry: CategorizedOutput): boolean {
   if (outputFilter.protocolsEnabled && !outputFilter.protocols.includes(entry.protocol)) return false;
   if (outputFilter.countriesEnabled && !outputFilter.countries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE)) return false;
-  if (outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "all") return false;
-  if (outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "yes" && entry.isCloudflare !== true) return false;
-  if (outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "no" && entry.isCloudflare !== false) return false;
+  if (cloudflareDetectionEnabled && outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "all") return false;
+  if (cloudflareDetectionEnabled && outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "yes" && entry.isCloudflare !== true) return false;
+  if (cloudflareDetectionEnabled && outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "no" && entry.isCloudflare !== false) return false;
   return true;
 }
 
@@ -1232,7 +1362,7 @@ function getFilteredOutputUris(): string[] {
 }
 
 function isOutputFilterActive(): boolean {
-  return outputFilter.protocolsEnabled || outputFilter.countriesEnabled || outputFilter.cloudflareEntryEnabled;
+  return outputFilter.protocolsEnabled || outputFilter.countriesEnabled || (cloudflareDetectionEnabled && outputFilter.cloudflareEntryEnabled);
 }
 
 function availableOutputRegionCodes(): string[] {
@@ -1256,8 +1386,10 @@ function updateOutputFilterDialogSummaries() {
     ? "未启用"
     : draftFilterCountries.length ? `已选 ${draftFilterCountries.length} 个地区` : "未选择地区";
   dom.outputFilterCloudflareEnabled.checked = draftFilterCloudflareEnabled;
-  dom.outputFilterCloudflareSummary.textContent = !draftFilterCloudflareEnabled
-    ? "未启用"
+  dom.outputFilterCloudflareEnabled.disabled = !cloudflareDetectionEnabled;
+  dom.outputFilterCloudflareSummary.textContent = !cloudflareDetectionEnabled
+    ? "检测已关闭"
+    : !draftFilterCloudflareEnabled ? "未启用"
     : draftFilterCloudflareEntry === "yes"
       ? "CF 入口"
       : draftFilterCloudflareEntry === "no" ? "非 CF 入口" : "未选择入口";
@@ -1265,7 +1397,7 @@ function updateOutputFilterDialogSummaries() {
     .forEach(checkbox => { checkbox.disabled = !draftFilterProtocolsEnabled; });
   dom.outputFilterRegionOptions.querySelectorAll<HTMLInputElement>("input[type='checkbox']")
     .forEach(checkbox => { checkbox.disabled = !draftFilterCountriesEnabled; });
-  dom.outputFilterCloudflareEntry.disabled = !draftFilterCloudflareEnabled;
+  dom.outputFilterCloudflareEntry.disabled = !cloudflareDetectionEnabled || !draftFilterCloudflareEnabled;
   dom.outputFilterCloudflareEntry.value = draftFilterCloudflareEntry;
 }
 
@@ -1350,7 +1482,6 @@ function saveOutputFilterDialog() {
   saveOutputFilter();
   dom.outputFilterDialog.close("save");
   renderOutputFilter();
-  void enrichOutputCloudflare();
   dom.outputFilterButton.focus();
 }
 
@@ -1395,7 +1526,9 @@ function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTabl
   const entryCell = document.createElement("td");
   const entryBadge = document.createElement("span");
   entryBadge.className = "output-entry-badge";
-  if (entry.isCloudflare === true) {
+  if (!cloudflareDetectionEnabled) {
+    entryBadge.textContent = "未检测";
+  } else if (entry.isCloudflare === true) {
     entryBadge.textContent = "CF";
     entryBadge.classList.add("is-cloudflare");
   } else if (entry.isCloudflare === false) {
@@ -1439,7 +1572,9 @@ function renderOutputFilter() {
   const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
   const cloudflareCount = outputEntries.filter(entry => entry.isCloudflare === true).length;
   const unresolvedCloudflareCount = outputEntries.filter(entry => entry.isCloudflare === null).length;
-  const cloudflareStatus = cloudflareDetectionState === "running"
+  const cloudflareStatus = !cloudflareDetectionEnabled
+    ? " · CF 入口检测已关闭"
+    : cloudflareDetectionState === "running"
     ? " · CF 入口检测中"
     : cloudflareDetectionState === "done"
       ? ` · CF 入口 ${cloudflareCount} 个${unresolvedCloudflareCount > 0 ? `（${unresolvedCloudflareCount} 个未解析）` : ""}`
@@ -1448,6 +1583,8 @@ function renderOutputFilter() {
     ? `${uris.length} / ${outputUris.length} 个节点`
     : `${outputUris.length} 个节点`;
   dom.outputOverview.textContent = `${countText}${regionStatus}${cloudflareStatus}`;
+  dom.regionLookupConcurrency.disabled = running || regionLookupState === "running";
+  dom.cloudflareDetectionConcurrency.disabled = running || cloudflareDetectionState === "running";
   dom.copyButton.disabled = uris.length === 0;
   dom.saveButton.disabled = uris.length === 0;
 }
@@ -1488,6 +1625,7 @@ async function enrichOutputRegions() {
         nodes: pendingEntries.map(({ id, server }) => ({ id, server })),
         lookupMethod: method,
         geoIpDatabasePath: method === "LOCAL_GEOIP" ? geoIpDatabasePath : null,
+        concurrency: regionLookupConcurrency,
       });
       if (runId !== regionLookupRunId) return;
       const resultById = new Map(results.map(result => [result.id, normalizeRegionCode(result.countryCode)]));
@@ -1509,6 +1647,7 @@ async function enrichOutputRegions() {
 }
 
 async function enrichOutputCloudflare() {
+  if (!cloudflareDetectionEnabled) return;
   const entries = [...outputEntries];
   if (entries.length === 0) {
     cloudflareDetectionRunId += 1;
@@ -1529,6 +1668,7 @@ async function enrichOutputCloudflare() {
       entryIps: string[];
     }>>("lookup_cloudflare_entries", {
       nodes: entries.map(({ id, server }) => ({ id, server })),
+      concurrency: cloudflareDetectionConcurrency,
     });
     if (runId !== cloudflareDetectionRunId) return;
     const resultById = new Map(results.map(result => [result.id, result] as const));
@@ -2082,6 +2222,14 @@ function bindEvents() {
   dom.outputFilterDialogClose.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogSave.addEventListener("click", saveOutputFilterDialog);
+  dom.regionLookupConcurrency.value = String(regionLookupConcurrency);
+  dom.regionLookupConcurrency.addEventListener("change", updateRegionLookupConcurrency);
+  dom.cloudflareDetectionEnabled.checked = cloudflareDetectionEnabled;
+  dom.cloudflareDetectionEnabled.addEventListener("change", () => {
+    updateCloudflareDetectionSetting(dom.cloudflareDetectionEnabled.checked);
+  });
+  dom.cloudflareDetectionConcurrency.value = String(cloudflareDetectionConcurrency);
+  dom.cloudflareDetectionConcurrency.addEventListener("change", updateCloudflareDetectionConcurrency);
   dom.outputFilterProtocolEnabled.addEventListener("change", () => {
     draftFilterProtocolsEnabled = dom.outputFilterProtocolEnabled.checked;
     updateOutputFilterDialogSummaries();
