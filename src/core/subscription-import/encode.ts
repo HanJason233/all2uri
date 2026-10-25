@@ -169,6 +169,10 @@ export function encodeNode(proxy: NodeMap, globalFingerprint = ""): string | nul
       put(query, "packetEncoding", field(proxy, "packet-encoding", "packet_encoding") || (type === "vless" ? "xudp" : ""));
       put(query, "pbk", field(reality, "public-key", "public_key")); put(query, "sid", field(reality, "short-id", "short_id"));
       put(query, "key_share", field(reality, "key_share", "key-share", "keyShare"));
+      if (type === "vless") {
+        put(query, "headerType", field(proxy, "headerType", "header_type"));
+        put(query, "spx", field(reality, "spider-x", "spider_x", "spx"));
+      }
       Object.assign(query, transport(proxy));
       return finish(type, credential);
     }

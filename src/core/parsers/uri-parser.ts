@@ -52,6 +52,7 @@ const URI_QUERY_KEYS = new Set([
   "echEnabled", "echConfigList", "echQueryServerName", "certificate", "fragment", "fragment_fallback_delay",
   "record_fragment", "pinSHA256", "certificate_public_key_sha256", "minVersion", "maxVersion", "type", "path",
   "host", "serviceName", "ed", "eh", "xhttpOptions", "flow", "encryption", "packetEncoding", "packet_encoding",
+  "headerType", "header_type", "spx",
   "ports", "obfs", "obfs-password", "hopInterval", "idle_session_check_interval", "idle_session_timeout",
   "min_idle_session", "max_idle_session", "congestion_control", "udp_relay_mode", "reduce_rtt", "publickey",
   "presharedkey", "address", "mtu", "reserved", "persistent_keepalive_interval", "jc", "jmin", "jmax", "s1",
@@ -115,6 +116,7 @@ function tlsSettings(settings: NodeMap, query: URLSearchParams) {
       ...(query.get("pbk") ? { "public-key": query.get("pbk") } : {}),
       ...(query.get("sid") ? { "short-id": query.get("sid") } : {}),
       ...(query.get("key_share") ? { key_share: query.get("key_share") } : {}),
+      ...(query.get("spx") ? { "spider-x": query.get("spx") } : {}),
     };
   }
   for (const [source, target] of [
@@ -162,6 +164,7 @@ function commonSettings(settings: NodeMap, query: URLSearchParams) {
   set(settings, "flow", query.get("flow") ?? undefined);
   set(settings, "encryption", query.get("encryption") ?? undefined);
   set(settings, "packet-encoding", query.get("packetEncoding") ?? query.get("packet_encoding") ?? undefined);
+  set(settings, "headerType", query.get("headerType") ?? query.get("header_type") ?? undefined);
 }
 
 function parseVmess(uri: string, source: NodeSource, ordinal: number): UriParseResult {

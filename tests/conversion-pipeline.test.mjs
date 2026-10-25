@@ -44,6 +44,15 @@ test("unknown query values cannot override protocol credentials during encoding"
   assert.ok(result.diagnostics.some(item => item.code === "field_not_encoded" && item.field === "password"));
 });
 
+test("VLESS TCP header type and REALITY spiderX survive URI round-trip", () => {
+  const input = `vless://${uuid}@edge.example:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.amazon.com&fp=chrome&pbk=test-public-key&sid=test-short-id&spx=%2F&type=tcp&headerType=none#edge`;
+  const result = convertText(input, "source-a");
+  assert.equal(result.encoded[0].status, "complete");
+  const output = new URL(result.uris[0]);
+  assert.equal(output.searchParams.get("headerType"), "none");
+  assert.equal(output.searchParams.get("spx"), "/");
+});
+
 test("TLS, ECH and certificate pin fields survive URI parse and encode", () => {
   const input = `vless://${uuid}@edge.example:443?security=tls&echEnabled=true&echConfigList=abc&echQueryServerName=ech.example&pinSHA256=pin-value&minVersion=1.2&maxVersion=1.3#edge`;
   const result = convertText(input, "source-a");

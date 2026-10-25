@@ -47,7 +47,7 @@ const PROTOCOL_FIELDS: Record<ProxyNode["protocol"], string[]> = {
   socks5: ["username", "password"],
   ss: ["password", "cipher", "method", "plugin", "plugin-opts", "plugin_opts", "udp-over-tcp", "udp_over_tcp"],
   vmess: ["uuid", "alterId", "alter-id", "cipher", "headerType", "header_type", "packet-encoding", "packet_encoding", ...TLS_FIELDS, ...TRANSPORT_FIELDS],
-  vless: ["uuid", ...TLS_FIELDS, ...TRANSPORT_PROTOCOL_FIELDS],
+  vless: ["uuid", "headerType", "header_type", ...TLS_FIELDS, ...TRANSPORT_PROTOCOL_FIELDS],
   trojan: ["password", ...TLS_FIELDS, ...TRANSPORT_PROTOCOL_FIELDS],
   hysteria2: ["password", "auth", "auth-str", "ports", "obfs", "obfs-password", "obfs_password", "hop-interval", "hop_interval", ...TLS_FIELDS],
   anytls: ["password", "idle-session-check-interval", "idle_session_check_interval", "idle-session-timeout", "idle_session_timeout", "min-idle-session", "min_idle_session", "max-idle-session", "max_idle_session", ...TLS_FIELDS],
@@ -86,7 +86,7 @@ function unknownFields(node: ProxyNode): string[] {
   addNested("grpc-opts", settings["grpc-opts"] ?? settings.grpc_opts, ["grpc-service-name", "service-name", "service_name"]);
   addNested("h2-opts", settings["h2-opts"] ?? settings.h2_opts ?? settings["http-opts"] ?? settings.http_opts, ["path", "host", "headers"]);
   addNested("http-upgrade-opts", settings["http-upgrade-opts"] ?? settings.http_upgrade_opts, ["path", "host", "headers"]);
-  addNested("reality-opts", settings["reality-opts"] ?? settings.reality_opts, ["public-key", "public_key", "short-id", "short_id", "key_share", "key-share", "keyShare"]);
+  addNested("reality-opts", settings["reality-opts"] ?? settings.reality_opts, ["public-key", "public_key", "short-id", "short_id", "key_share", "key-share", "keyShare", "spider-x", "spider_x", "spx"]);
   addNested("ech-opts", settings["ech-opts"] ?? settings.ech_opts, ["enable", "enabled", "config", "query-server-name", "query_server_name"]);
   for (const key of ["ws-opts", "ws_opts", "h2-opts", "h2_opts", "http-opts", "http_opts", "http-upgrade-opts", "http_upgrade_opts"]) {
     const headers = object(object(settings[key]).headers);
