@@ -357,19 +357,7 @@ const dom = {
   copyButton: getElement<HTMLButtonElement>("copy-button"),
   saveButton: getElement<HTMLButtonElement>("save-button"),
   toast: getElement<HTMLDivElement>("toast"),
-  inputPanel: getElement<HTMLElement>("input-panel"),
-  processingPanel: getElement<HTMLElement>("processing-panel"),
-  outputPanel: getElement<HTMLElement>("output-panel"),
-  inputDetailButton: getElement<HTMLButtonElement>("input-detail-button"),
-  processingDetailButton: getElement<HTMLButtonElement>("processing-detail-button"),
-  outputDetailButton: getElement<HTMLButtonElement>("output-detail-button"),
-  detailBackdrop: getElement<HTMLDivElement>("detail-backdrop"),
 };
-
-interface DetailView {
-  panel: HTMLElement;
-  button: HTMLButtonElement;
-}
 
 interface ResizeState {
   index: number;
@@ -379,17 +367,10 @@ interface ResizeState {
   startRatios: number[];
 }
 
-const detailViews: DetailView[] = [
-  { panel: dom.inputPanel, button: dom.inputDetailButton },
-  { panel: dom.processingPanel, button: dom.processingDetailButton },
-  { panel: dom.outputPanel, button: dom.outputDetailButton },
-];
-
 const MIN_PANEL_WIDTH = 200;
 const SPLITTER_WIDTH = 9;
 const DEFAULT_PANEL_RATIOS = [0.29, 0.42, 0.29];
 
-let activeDetail: DetailView | null = null;
 let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
 let sourceResults: SourceResult[] = [];
@@ -427,37 +408,6 @@ function showToast(message: string, error = false) {
   dom.toast.classList.toggle("error", error);
   dom.toast.classList.add("visible");
   toastTimer = window.setTimeout(() => dom.toast.classList.remove("visible"), 3200);
-}
-
-function closeDetail(focusTrigger = true) {
-  if (!activeDetail) return;
-  const { panel, button } = activeDetail;
-  panel.classList.remove("is-expanded");
-  panel.removeAttribute("role");
-  panel.removeAttribute("aria-modal");
-  button.textContent = "查看详情";
-  button.setAttribute("aria-expanded", "false");
-  dom.detailBackdrop.hidden = true;
-  document.body.classList.remove("detail-open");
-  activeDetail = null;
-  if (focusTrigger) button.focus();
-}
-
-function openDetail(view: DetailView) {
-  if (activeDetail && activeDetail !== view) closeDetail(false);
-  activeDetail = view;
-  view.panel.classList.add("is-expanded");
-  view.panel.setAttribute("role", "dialog");
-  view.panel.setAttribute("aria-modal", "true");
-  view.button.textContent = "收起详情";
-  view.button.setAttribute("aria-expanded", "true");
-  dom.detailBackdrop.hidden = false;
-  document.body.classList.add("detail-open");
-}
-
-function toggleDetail(view: DetailView) {
-  if (activeDetail === view) closeDetail();
-  else openDetail(view);
 }
 
 function availableWorkspaceWidth(): number {
@@ -1336,8 +1286,6 @@ async function startConversion() {
     }
   }
 
-  closeDetail(false);
-
   cancelRequested = false;
   activeSourceDocuments = [];
   const runController = new AbortController();
@@ -1642,14 +1590,6 @@ function bindEvents() {
   dom.clearGeoIpDatabaseButton.addEventListener("click", clearGeoIpDatabase);
   dom.copyButton.addEventListener("click", () => void copyFilteredOutput());
   dom.saveButton.addEventListener("click", () => void saveFilteredOutput());
-  document.addEventListener("keydown", event => {
-    if (event.key !== "Escape") return;
-    if (activeDetail) {
-      closeDetail();
-      return;
-    }
-  });
-
   dom.urls.addEventListener("keydown", event => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
@@ -1667,11 +1607,6 @@ function bindEvents() {
   });
   dom.deduplicateOutput.addEventListener("change", refreshForOutputSettingChange);
   dom.includeLossyOutput.addEventListener("change", refreshForOutputSettingChange);
-
-  for (const view of detailViews) {
-    view.button.addEventListener("click", () => toggleDetail(view));
-  }
-  dom.detailBackdrop.addEventListener("click", () => closeDetail());
 
   for (const input of [dom.fetchConcurrency, dom.maxRedirects]) {
     input.addEventListener("input", () => {
