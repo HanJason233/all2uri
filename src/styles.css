@@ -1405,6 +1405,20 @@ body.resizing-panels {
   font-size: 11px;
 }
 
+.output-rule-cf-option {
+  width: fit-content;
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 11px;
+}
+
+.output-rule-cf-description {
+  margin: -3px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .output-group-result-heading {
   display: flex;
   gap: 8px;

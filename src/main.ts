@@ -40,6 +40,7 @@ interface CategorizedOutput {
   protocol: ProxyProtocol;
   uri: string;
   countryCode: string | null;
+  isCloudflare: boolean | null;
 }
 
 interface OutputGroup {
@@ -48,6 +49,7 @@ interface OutputGroup {
   // 组内按任一已选节点类型匹配；不同分组独立计算，允许重复命中。
   matchProtocols: ProxyProtocol[];
   matchCountries: string[];
+  matchCloudflare: boolean;
 }
 
 type SourceKind = "local" | "remote";
@@ -94,8 +96,8 @@ const LEGACY_CATEGORY_RULES_STORAGE_KEY = "all2uri.output-category-rules";
 const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
 const DEFAULT_OUTPUT_GROUPS: OutputGroup[] = [
-  { id: "default-vless", name: "VLESS", matchProtocols: ["vless"], matchCountries: [] },
-  { id: "default-vmess", name: "VMess", matchProtocols: ["vmess"], matchCountries: [] },
+  { id: "default-vless", name: "VLESS", matchProtocols: ["vless"], matchCountries: [], matchCloudflare: false },
+  { id: "default-vmess", name: "VMess", matchProtocols: ["vmess"], matchCountries: [], matchCloudflare: false },
 ];
 const USER_AGENT_PRESETS: Record<string, string> = {
   nekobox: "NekoBox/Android/1.4.2 (Prefer ClashMeta Format)",
@@ -175,6 +177,7 @@ function loadOutputGroups(): OutputGroup[] {
             : matchProtocols.length ? getProtocolLabel(matchProtocols[0]) : "新分组",
           matchProtocols,
           matchCountries,
+          matchCloudflare: candidate.matchCloudflare === true,
         });
       }
       return groups;
@@ -189,6 +192,7 @@ function loadOutputGroups(): OutputGroup[] {
           name: getProtocolLabel(protocol),
           matchProtocols: [protocol],
           matchCountries: [],
+          matchCloudflare: false,
         }));
       }
     }
@@ -374,6 +378,8 @@ const dom = {
   outputRuleProtocolSummary: getElement<HTMLSpanElement>("output-rule-protocol-summary"),
   outputRuleRegionOptions: getElement<HTMLDivElement>("output-rule-region-options"),
   outputRuleRegionSummary: getElement<HTMLSpanElement>("output-rule-region-summary"),
+  outputRuleCloudflareEntry: getElement<HTMLInputElement>("output-rule-cf-entry"),
+  outputRuleCloudflareSummary: getElement<HTMLSpanElement>("output-rule-cf-summary"),
   outputOverview: getElement<HTMLSpanElement>("output-overview"),
   nodeCount: getElement<HTMLElement>("node-count"),
   sourceCount: getElement<HTMLElement>("source-count"),
@@ -424,9 +430,12 @@ let regionLookupMethods = loadRegionLookupMethods();
 let geoIpDatabasePath = loadGeoIpDatabasePath();
 let regionLookupState: "idle" | "running" | "done" | "error" = "idle";
 let regionLookupRunId = 0;
+let cloudflareDetectionState: "idle" | "running" | "done" | "error" = "idle";
+let cloudflareDetectionRunId = 0;
 let activeOutputRuleGroupId: string | null = null;
 let draftMatchProtocols: ProxyProtocol[] = [];
 let draftMatchCountries: string[] = [];
+let draftMatchCloudflare = false;
 let duplicateCount = 0;
 let activeSourceDocuments: SourceDocument[] = [];
 let conversionAbort: AbortController | null = null;
@@ -815,12 +824,16 @@ function getOutputGroupUris(group: OutputGroup): string[] {
 
 function outputEntryMatchesGroup(entry: CategorizedOutput, group: OutputGroup): boolean {
   if (!group.matchProtocols.includes(entry.protocol)) return false;
-  if (group.matchCountries.length === 0) return true;
-  return group.matchCountries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE);
+  if (group.matchCountries.length > 0 && !group.matchCountries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE)) return false;
+  return !group.matchCloudflare || entry.isCloudflare === true;
 }
 
 function groupResultEmptyText(group: OutputGroup): string {
   if (group.matchProtocols.length === 0) return "请至少选择一个节点类型";
+  if (group.matchCloudflare && cloudflareDetectionState === "running") return "正在检查服务器入口 IP，完成后显示 CF 节点";
+  if (group.matchCloudflare && cloudflareDetectionState === "error") return "CF 入口检测失败，请重新保存筛选规则重试";
+  if (group.matchCloudflare && cloudflareDetectionState === "idle" && outputEntries.length > 0) return "等待 CF 入口检测";
+  if (group.matchCloudflare && cloudflareDetectionState === "done" && outputEntries.some(entry => entry.isCloudflare === null)) return "部分服务器入口无法解析，未识别的节点不会匹配";
   if (regionLookupState === "running") return "正在查询节点地区，完成后显示匹配结果";
   if (running) return "正在处理订阅，完成后显示匹配结果";
   if (group.matchCountries.length > 0 && regionLookupState === "error") return "地区查询失败，请检查网络或数据库设置";
@@ -847,6 +860,8 @@ function updateOutputRuleDialogSummaries() {
   dom.outputRuleRegionSummary.textContent = draftMatchCountries.length
     ? `已选 ${draftMatchCountries.length} 个地区`
     : "全部地区";
+  dom.outputRuleCloudflareSummary.textContent = draftMatchCloudflare ? "仅 CF 入口" : "全部入口";
+  dom.outputRuleCloudflareEntry.checked = draftMatchCloudflare;
 }
 
 function renderOutputRuleDialogOptions(group: OutputGroup) {
@@ -912,6 +927,7 @@ function openOutputRuleDialog(groupId: string) {
   activeOutputRuleGroupId = group.id;
   draftMatchProtocols = [...group.matchProtocols];
   draftMatchCountries = [...group.matchCountries];
+  draftMatchCloudflare = group.matchCloudflare;
   dom.outputRuleDialogTitle.textContent = `设置“${group.name}”的匹配规则`;
   renderOutputRuleDialogOptions(group);
   dom.outputRuleDialog.showModal();
@@ -925,10 +941,12 @@ function saveOutputRuleDialog() {
   }
   group.matchProtocols = [...draftMatchProtocols];
   group.matchCountries = [...draftMatchCountries];
+  group.matchCloudflare = draftMatchCloudflare;
   saveOutputGroups();
   const groupId = group.id;
   dom.outputRuleDialog.close("save");
   renderOutputGroups();
+  void enrichOutputCloudflare();
   const renderedCard = Array.from(dom.outputGroupList.querySelectorAll<HTMLElement>("[data-group-id]"))
     .find(element => element.dataset.groupId === groupId);
   renderedCard?.querySelector<HTMLButtonElement>(".output-group-rule-button")?.focus();
@@ -982,8 +1000,8 @@ function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
   const regionSummary = group.matchCountries.length
     ? group.matchCountries.map(countryNameForCode).join("、")
     : "全部地区";
-  ruleSummary.textContent = `${protocolSummary} · ${regionSummary}`;
-  ruleSummary.title = `${protocolSummary} · ${regionSummary}`;
+  ruleSummary.textContent = `${protocolSummary} · ${regionSummary}${group.matchCloudflare ? " · CF 入口" : ""}`;
+  ruleSummary.title = `${protocolSummary} · ${regionSummary}${group.matchCloudflare ? " · CF 入口" : ""}`;
 
   const ruleButton = document.createElement("button");
   ruleButton.className = "output-group-rule-button";
@@ -1094,7 +1112,14 @@ function renderOutputGroups() {
   if (unmatched.length > 0) dom.outputGroupList.append(renderUnmatchedOutput(unmatched));
 
   const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
-  dom.outputOverview.textContent = `${outputUris.length} 个节点 · ${outputGroups.length} 个分组${regionStatus}`;
+  const cloudflareCount = outputEntries.filter(entry => entry.isCloudflare === true).length;
+  const unresolvedCloudflareCount = outputEntries.filter(entry => entry.isCloudflare === null).length;
+  const cloudflareStatus = cloudflareDetectionState === "running"
+    ? " · CF 入口检测中"
+    : cloudflareDetectionState === "done" && outputGroups.some(group => group.matchCloudflare)
+      ? ` · CF 入口 ${cloudflareCount} 个${unresolvedCloudflareCount > 0 ? `（${unresolvedCloudflareCount} 个未解析）` : ""}`
+      : "";
+  dom.outputOverview.textContent = `${outputUris.length} 个节点 · ${outputGroups.length} 个分组${regionStatus}${cloudflareStatus}`;
   dom.copyButton.disabled = outputUris.length === 0;
   dom.saveButton.disabled = outputUris.length === 0;
 }
@@ -1109,6 +1134,7 @@ function addOutputGroup() {
     name: sameTypeCount ? `${baseName} ${sameTypeCount + 1}` : baseName,
     matchProtocols: [protocol],
     matchCountries: [],
+    matchCloudflare: false,
   });
   saveOutputGroups();
   renderOutputGroups();
@@ -1170,7 +1196,46 @@ async function enrichOutputRegions() {
   renderOutputGroups();
 }
 
+async function enrichOutputCloudflare() {
+  const entries = [...outputEntries];
+  if (entries.length === 0) {
+    cloudflareDetectionRunId += 1;
+    cloudflareDetectionState = "idle";
+    return;
+  }
+  if (!outputGroups.some(group => group.matchCloudflare)) {
+    if (cloudflareDetectionState === "running") {
+      cloudflareDetectionRunId += 1;
+      cloudflareDetectionState = "idle";
+    }
+    return;
+  }
+  if (cloudflareDetectionState === "running") return;
+  if (cloudflareDetectionState === "done" && entries.every(entry => entry.isCloudflare !== null)) return;
+
+  const runId = ++cloudflareDetectionRunId;
+  cloudflareDetectionState = "running";
+  for (const entry of entries) entry.isCloudflare = null;
+  renderOutputGroups();
+  try {
+    const results = await invoke<Array<{ id: string; isCloudflare: boolean | null }>>("lookup_cloudflare_entries", {
+      nodes: entries.map(({ id, server }) => ({ id, server })),
+    });
+    if (runId !== cloudflareDetectionRunId) return;
+    const resultById = new Map(results.map(result => [result.id, result.isCloudflare]));
+    for (const entry of entries) entry.isCloudflare = resultById.get(entry.id) ?? null;
+    cloudflareDetectionState = "done";
+  } catch (error) {
+    if (runId !== cloudflareDetectionRunId) return;
+    cloudflareDetectionState = "error";
+    appendLog(`CF 入口检测失败：${failureFrom(error).message}`, true);
+  }
+  if (runId === cloudflareDetectionRunId) renderOutputGroups();
+}
+
 function aggregateResults(result: ConversionResult, logDiagnostics = true) {
+  cloudflareDetectionRunId += 1;
+  cloudflareDetectionState = "idle";
   outputEntries = result.encoded
     .filter(item => item.uri && (item.status === "complete" || (shouldIncludeLossyOutput() && item.status === "lossy")))
     .map((item, index) => ({
@@ -1180,6 +1245,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
       protocol: item.node.protocol,
       uri: item.uri!,
       countryCode: null,
+      isCloudflare: null,
     }));
   outputUris = outputEntries.map(item => item.uri);
   duplicateCount = result.stats.duplicates;
@@ -1213,6 +1279,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
   renderOutputGroups();
   if (logDiagnostics) appendConversionDiagnostics(result);
   void enrichOutputRegions();
+  void enrichOutputCloudflare();
 }
 
 async function refreshConversion() {
@@ -1473,6 +1540,8 @@ async function startConversion() {
   outputEntries = [];
   regionLookupRunId += 1;
   regionLookupState = "idle";
+  cloudflareDetectionRunId += 1;
+  cloudflareDetectionState = "idle";
   duplicateCount = 0;
   completedSources = sourceResults.filter(source => source.state === "error").length;
 
@@ -1677,6 +1746,10 @@ function bindEvents() {
   dom.outputRuleDialogClose.addEventListener("click", () => dom.outputRuleDialog.close("cancel"));
   dom.outputRuleDialogCancel.addEventListener("click", () => dom.outputRuleDialog.close("cancel"));
   dom.outputRuleDialogSave.addEventListener("click", saveOutputRuleDialog);
+  dom.outputRuleCloudflareEntry.addEventListener("change", () => {
+    draftMatchCloudflare = dom.outputRuleCloudflareEntry.checked;
+    updateOutputRuleDialogSummaries();
+  });
   dom.outputRuleDialog.addEventListener("click", event => {
     if (event.target === dom.outputRuleDialog) dom.outputRuleDialog.close("cancel");
   });

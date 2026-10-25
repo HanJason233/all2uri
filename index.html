@@ -277,7 +277,7 @@
         <header class="output-rule-dialog-header">
           <div>
             <h2 id="output-rule-dialog-title">设置匹配规则</h2>
-            <p>节点类型与地区条件同时匹配；各自选中的多个条件按“或”匹配。</p>
+            <p>节点类型、地区和 CF 入口筛选同时生效；同组所选类型和地区按“或”匹配。</p>
           </div>
           <button class="output-rule-dialog-close" id="output-rule-dialog-close" type="button" aria-label="关闭匹配规则设置">×</button>
         </header>
@@ -295,6 +295,17 @@
               <span id="output-rule-region-summary">全部地区</span>
             </div>
             <div class="output-group-protocol-options output-rule-options" id="output-rule-region-options"></div>
+          </section>
+          <section class="output-rule-section" aria-labelledby="output-rule-cf-title">
+            <div class="output-rule-section-heading">
+              <h3 id="output-rule-cf-title">服务器入口</h3>
+              <span id="output-rule-cf-summary">全部入口</span>
+            </div>
+            <label class="output-group-protocol-option output-rule-cf-option">
+              <input id="output-rule-cf-entry" type="checkbox" />
+              <span>仅匹配 Cloudflare（CF）入口</span>
+            </label>
+            <p class="output-rule-cf-description">只检查节点服务器入口 IP 是否属于 Cloudflare 网段，不检测代理出口。</p>
           </section>
         </div>
         <footer class="output-rule-dialog-actions">

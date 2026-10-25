@@ -14,6 +14,30 @@ use url::Url;
 const MAX_CONCURRENCY: usize = 8;
 const MAX_GEOIP_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_GEOIP_FIELD_BYTES: u64 = 32 * 1024 * 1024;
+const CLOUDFLARE_CIDRS: &[&str] = &[
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22",
+    "2400:cb00::/32",
+    "2606:4700::/32",
+    "2803:f800::/32",
+    "2405:b500::/32",
+    "2405:8100::/32",
+    "2a06:98c0::/29",
+    "2c0f:f248::/32",
+];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +51,20 @@ pub struct RegionLookupNode {
 pub struct RegionLookupResult {
     pub id: String,
     pub country_code: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudflareLookupNode {
+    pub id: String,
+    pub server: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudflareLookupResult {
+    pub id: String,
+    pub is_cloudflare: Option<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -127,6 +165,110 @@ pub async fn lookup_node_regions(
         }
     }
     results.into_iter().flatten().collect()
+}
+
+/// 检查节点服务器入口地址是否命中 Cloudflare 官方网段，不检查代理出口地址。
+#[tauri::command]
+pub async fn lookup_cloudflare_entries(
+    nodes: Vec<CloudflareLookupNode>,
+) -> Vec<CloudflareLookupResult> {
+    let mut nodes_by_server: HashMap<String, Vec<(usize, String)>> = HashMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        nodes_by_server
+            .entry(node.server.clone())
+            .or_default()
+            .push((index, node.id.clone()));
+    }
+
+    let mut tasks = JoinSet::new();
+    let mut results: Vec<Option<CloudflareLookupResult>> = (0..nodes.len()).map(|_| None).collect();
+    for (server, indexed_nodes) in nodes_by_server {
+        tasks.spawn(async move {
+            let addresses = resolve_public_addresses(&server).await;
+            let is_cloudflare = (!addresses.is_empty())
+                .then(|| addresses.into_iter().any(is_cloudflare_address));
+            indexed_nodes
+                .into_iter()
+                .map(|(index, id)| {
+                    (index, CloudflareLookupResult { id, is_cloudflare })
+                })
+                .collect::<Vec<_>>()
+        });
+
+        if tasks.len() >= MAX_CONCURRENCY {
+            if let Some(Ok(batch)) = tasks.join_next().await {
+                for (index, result) in batch {
+                    results[index] = Some(result);
+                }
+            }
+        }
+    }
+
+    while let Some(batch) = tasks.join_next().await {
+        if let Ok(batch) = batch {
+            for (index, result) in batch {
+                results[index] = Some(result);
+            }
+        }
+    }
+    results.into_iter().flatten().collect()
+}
+
+fn is_cloudflare_address(address: IpAddr) -> bool {
+    let address = match address {
+        IpAddr::V6(value) => value
+            .to_ipv4_mapped()
+            .map(IpAddr::V4)
+            .unwrap_or(IpAddr::V6(value)),
+        value => value,
+    };
+    cloudflare_ranges().iter().any(|range| range.contains(address))
+}
+
+#[derive(Clone, Copy)]
+struct IpRange {
+    network: IpAddr,
+    prefix: u8,
+}
+
+impl IpRange {
+    fn contains(self, address: IpAddr) -> bool {
+        match (address, self.network) {
+            (IpAddr::V4(address), IpAddr::V4(network)) if self.prefix <= 32 => {
+                let mask = if self.prefix == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - u32::from(self.prefix))
+                };
+                (u32::from(address) & mask) == (u32::from(network) & mask)
+            }
+            (IpAddr::V6(address), IpAddr::V6(network)) if self.prefix <= 128 => {
+                let mask = if self.prefix == 0 {
+                    0
+                } else {
+                    u128::MAX << (128 - u32::from(self.prefix))
+                };
+                (u128::from(address) & mask) == (u128::from(network) & mask)
+            }
+            _ => false,
+        }
+    }
+}
+
+fn cloudflare_ranges() -> &'static [IpRange] {
+    static RANGES: OnceLock<Vec<IpRange>> = OnceLock::new();
+    RANGES.get_or_init(|| {
+        CLOUDFLARE_CIDRS
+            .iter()
+            .filter_map(|cidr| {
+                let (network, prefix) = cidr.split_once('/')?;
+                let network = network.parse::<IpAddr>().ok()?;
+                let prefix = prefix.parse::<u8>().ok()?;
+                let max_prefix = if network.is_ipv4() { 32 } else { 128 };
+                (prefix <= max_prefix).then_some(IpRange { network, prefix })
+            })
+            .collect()
+    })
 }
 
 async fn resolve_public_addresses(server: &str) -> Vec<IpAddr> {

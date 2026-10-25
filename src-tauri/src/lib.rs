@@ -703,7 +703,8 @@ pub fn run() {
             cancel_subscription,
             read_text_file,
             save_text_file,
-            region_lookup::lookup_node_regions
+            region_lookup::lookup_node_regions,
+            region_lookup::lookup_cloudflare_entries
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
