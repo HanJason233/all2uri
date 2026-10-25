@@ -1200,7 +1200,7 @@ function renderOutputTableRow(entry: CategorizedOutput): HTMLTableRowElement {
   copy.addEventListener("click", () => void copyUris([entry.uri], `节点“${name.textContent}”`));
   actionCell.append(copy);
 
-  row.append(nameCell, entryIpCell, protocolCell, regionCell, entryCell, actionCell);
+  row.append(nameCell, protocolCell, entryIpCell, regionCell, entryCell, actionCell);
   return row;
 }
 

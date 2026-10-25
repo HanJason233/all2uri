@@ -899,8 +899,8 @@ label.settings-row {
 }
 
 .output-table th:nth-child(1) { width: 128px; }
-.output-table th:nth-child(2) { width: 152px; }
-.output-table th:nth-child(3) { width: 72px; }
+.output-table th:nth-child(2) { width: 72px; }
+.output-table th:nth-child(3) { width: 152px; }
 .output-table th:nth-child(4) { width: 82px; }
 .output-table th:nth-child(5) { width: 62px; }
 .output-table th:nth-child(6) { width: 64px; }
