@@ -23,10 +23,8 @@ use url::Url;
 mod region_lookup;
 
 const DEFAULT_MAX_REDIRECTS: usize = 10;
-const MAX_REDIRECTS_LIMIT: usize = 50;
 const DEFAULT_REMOTE_TIMEOUT_SECONDS: u64 = 30;
 const MIN_REMOTE_TIMEOUT_SECONDS: u64 = 1;
-const MAX_REMOTE_TIMEOUT_SECONDS: u64 = 600;
 const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_URL_CHARS: usize = 8192;
 const MAX_COMPLETED_REQUEST_IDS: usize = 2048;
@@ -183,16 +181,10 @@ impl Default for RequestOptions {
 
 impl RequestOptions {
     fn validate(self) -> Result<Self, FetchFailure> {
-        if self.max_redirects > MAX_REDIRECTS_LIMIT {
-            return Err(FetchFailure::new(
-                "invalid_redirect_limit",
-                "最大重定向次数不能超过 50。",
-            ));
-        }
-        if !(MIN_REMOTE_TIMEOUT_SECONDS..=MAX_REMOTE_TIMEOUT_SECONDS).contains(&self.timeout_seconds) {
+        if self.timeout_seconds < MIN_REMOTE_TIMEOUT_SECONDS {
             return Err(FetchFailure::new(
                 "invalid_timeout",
-                "远程订阅超时必须在 1 到 600 秒之间。",
+                "远程订阅超时不能小于 1 秒。",
             ));
         }
         Ok(self)
@@ -273,7 +265,7 @@ fn user_agents(custom: Option<&str>) -> Result<Vec<String>, FetchFailure> {
             .map(|value| (*value).to_string())
             .collect());
     };
-    if custom.chars().count() > 512 || custom.chars().any(char::is_control) {
+    if custom.chars().any(char::is_control) {
         return Err(FetchFailure::new(
             "invalid_user_agent",
             "User-Agent 格式无效。",
@@ -953,14 +945,6 @@ mod tests {
     fn validates_request_options() {
         let defaults = RequestOptions::default().validate().unwrap();
         assert_eq!(defaults.max_redirects, DEFAULT_MAX_REDIRECTS);
-
-        let too_many_redirects = RequestOptions {
-            max_redirects: MAX_REDIRECTS_LIMIT + 1,
-            ..RequestOptions::default()
-        }
-        .validate()
-        .unwrap_err();
-        assert_eq!(too_many_redirects.code, "invalid_redirect_limit");
     }
 
     #[tokio::test]

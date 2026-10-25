@@ -165,7 +165,6 @@
               id="custom-user-agent"
               class="settings-control settings-text"
               type="text"
-              maxlength="512"
               spellcheck="false"
               autocomplete="off"
               placeholder="例如：MyClient/1.0"
@@ -178,21 +177,21 @@
             <label class="settings-row">
               <span>最大重定向</span>
               <span class="settings-value">
-                <input id="max-redirects" class="settings-control settings-number" type="number" min="0" max="50" step="1" value="10" inputmode="numeric" />
+                <input id="max-redirects" class="settings-control settings-number" type="number" min="0" step="1" value="10" inputmode="numeric" />
                 <span>次</span>
               </span>
             </label>
             <label class="settings-row">
               <span>远程订阅超时</span>
               <span class="settings-value">
-                <input id="remote-timeout-seconds" class="settings-control settings-number" type="number" min="1" max="600" step="1" value="30" inputmode="numeric" />
+                <input id="remote-timeout-seconds" class="settings-control settings-number" type="number" min="1" step="1" value="30" inputmode="numeric" />
                 <span>秒</span>
               </span>
             </label>
             <label class="settings-row">
               <span>并发请求</span>
               <span class="settings-value">
-                <input id="fetch-concurrency" class="settings-control settings-number" type="number" min="1" max="100" step="1" value="10" inputmode="numeric" />
+                <input id="fetch-concurrency" class="settings-control settings-number" type="number" min="1" step="1" value="10" inputmode="numeric" />
                 <select id="fetch-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="并发单位">
                   <option value="fixed">个</option>
                   <option value="percent" selected>%</option>
@@ -243,7 +242,7 @@
             <label class="settings-row">
               <span>CF 检测并发</span>
               <span class="settings-value">
-                <input id="cloudflare-detection-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="64" inputmode="numeric" />
+                <input id="cloudflare-detection-concurrency" class="settings-control settings-number" type="number" min="1" step="1" value="64" inputmode="numeric" />
                 <span>个</span>
               </span>
             </label>
@@ -255,7 +254,7 @@
             <label class="settings-row">
               <span>地区查询并发</span>
               <span class="settings-value">
-                <input id="region-lookup-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="8" inputmode="numeric" />
+                <input id="region-lookup-concurrency" class="settings-control settings-number" type="number" min="1" step="1" value="8" inputmode="numeric" />
                 <span>个</span>
               </span>
             </label>

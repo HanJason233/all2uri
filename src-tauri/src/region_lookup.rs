@@ -11,8 +11,6 @@ use tauri::{path::BaseDirectory, Manager};
 use tokio::{net::lookup_host, task::JoinSet};
 use url::Url;
 
-const MAX_REGION_LOOKUP_CONCURRENCY: usize = 512;
-const MAX_CLOUDFLARE_LOOKUP_CONCURRENCY: usize = 512;
 const MAX_GEOIP_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_GEOIP_FIELD_BYTES: u64 = 32 * 1024 * 1024;
 const CLOUDFLARE_CIDRS: &[&str] = &[
@@ -83,7 +81,7 @@ pub async fn lookup_node_regions(
     geo_ip_database_path: Option<String>,
     concurrency: usize,
 ) -> Vec<RegionLookupResult> {
-    let concurrency = concurrency.clamp(1, MAX_REGION_LOOKUP_CONCURRENCY);
+    let concurrency = concurrency.max(1);
     let method = match lookup_method.as_str() {
         "LOCAL_GEOIP" => LookupMethod::LocalGeoIp,
         "REMOTE_API" => LookupMethod::RemoteApi,
@@ -177,7 +175,7 @@ pub async fn lookup_cloudflare_entries(
     nodes: Vec<CloudflareLookupNode>,
     concurrency: usize,
 ) -> Vec<CloudflareLookupResult> {
-    let concurrency = concurrency.clamp(1, MAX_CLOUDFLARE_LOOKUP_CONCURRENCY);
+    let concurrency = concurrency.max(1);
     let mut nodes_by_server: HashMap<String, Vec<(usize, String)>> = HashMap::new();
     for (index, node) in nodes.iter().enumerate() {
         nodes_by_server

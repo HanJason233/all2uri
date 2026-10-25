@@ -76,18 +76,12 @@ interface SourceResult {
 }
 
 const MIN_FETCH_CONCURRENCY = 1;
-const MAX_FETCH_CONCURRENCY = 20;
-const MAX_FETCH_CONCURRENCY_PERCENT = 100;
-const MAX_REDIRECTS = 50;
 const MIN_REMOTE_TIMEOUT_SECONDS = 1;
 const DEFAULT_REMOTE_TIMEOUT_SECONDS = 30;
-const MAX_REMOTE_TIMEOUT_SECONDS = 600;
 const MIN_CLOUDFLARE_DETECTION_CONCURRENCY = 1;
 const DEFAULT_CLOUDFLARE_DETECTION_CONCURRENCY = 64;
-const MAX_CLOUDFLARE_DETECTION_CONCURRENCY = 512;
 const MIN_REGION_LOOKUP_CONCURRENCY = 1;
 const DEFAULT_REGION_LOOKUP_CONCURRENCY = 8;
-const MAX_REGION_LOOKUP_CONCURRENCY = 512;
 const MAX_BATCH_INPUT_BYTES = 64 * 1024 * 1024;
 const MIN_REMOTE_BATCH_BYTES = 1024 * 1024;
 type FetchConcurrencyMode = "fixed" | "percent";
@@ -178,7 +172,6 @@ function loadCloudflareDetectionConcurrency(): number {
     const stored = Number(window.localStorage.getItem(CLOUDFLARE_DETECTION_CONCURRENCY_STORAGE_KEY));
     return Number.isInteger(stored)
       && stored >= MIN_CLOUDFLARE_DETECTION_CONCURRENCY
-      && stored <= MAX_CLOUDFLARE_DETECTION_CONCURRENCY
       ? stored
       : DEFAULT_CLOUDFLARE_DETECTION_CONCURRENCY;
   } catch {
@@ -191,7 +184,6 @@ function loadRegionLookupConcurrency(): number {
     const stored = Number(window.localStorage.getItem(REGION_LOOKUP_CONCURRENCY_STORAGE_KEY));
     return Number.isInteger(stored)
       && stored >= MIN_REGION_LOOKUP_CONCURRENCY
-      && stored <= MAX_REGION_LOOKUP_CONCURRENCY
       ? stored
       : DEFAULT_REGION_LOOKUP_CONCURRENCY;
   } catch {
@@ -847,8 +839,8 @@ function resolveUserAgent(): string | null {
       dom.customUserAgent.focus();
       throw new ConversionError("invalid_user_agent", "自定义 User-Agent 不能为空。");
     }
-    if (custom.length > 512 || /[\r\n]/.test(custom)) {
-      setValidation("User-Agent 不能包含换行，且长度不能超过 512 个字符。");
+    if (/[\r\n]/.test(custom)) {
+      setValidation("User-Agent 不能包含换行。");
       dom.customUserAgent.focus();
       throw new ConversionError("invalid_user_agent", "User-Agent 格式无效。");
     }
@@ -1161,8 +1153,8 @@ function handleQrImageSelection() {
 
 function resolveMaxRedirects(): number {
   const maxRedirects = dom.maxRedirects.valueAsNumber;
-  if (!Number.isInteger(maxRedirects) || maxRedirects < 0 || maxRedirects > MAX_REDIRECTS) {
-    setValidation(`最大重定向必须是 0 到 ${MAX_REDIRECTS} 之间的整数。`);
+  if (!Number.isInteger(maxRedirects) || maxRedirects < 0) {
+    setValidation("最大重定向次数必须是大于等于 0 的整数。");
     dom.maxRedirects.focus();
     throw new ConversionError("invalid_redirect_limit", "重定向设置无效。");
   }
@@ -1171,8 +1163,8 @@ function resolveMaxRedirects(): number {
 
 function resolveRemoteTimeoutSeconds(): number {
   const timeoutSeconds = dom.remoteTimeoutSeconds.valueAsNumber;
-  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < MIN_REMOTE_TIMEOUT_SECONDS || timeoutSeconds > MAX_REMOTE_TIMEOUT_SECONDS) {
-    setValidation(`远程订阅超时必须是 ${MIN_REMOTE_TIMEOUT_SECONDS} 到 ${MAX_REMOTE_TIMEOUT_SECONDS} 秒之间的整数。`);
+  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < MIN_REMOTE_TIMEOUT_SECONDS) {
+    setValidation(`远程订阅超时必须是大于等于 ${MIN_REMOTE_TIMEOUT_SECONDS} 秒的整数。`);
     dom.remoteTimeoutSeconds.focus();
     throw new ConversionError("invalid_timeout", "远程订阅超时设置无效。");
   }
@@ -1182,11 +1174,8 @@ function resolveRemoteTimeoutSeconds(): number {
 function resolveFetchConcurrencySetting(): FetchConcurrencySetting {
   const mode: FetchConcurrencyMode = dom.fetchConcurrencyMode.value === "percent" ? "percent" : "fixed";
   const value = dom.fetchConcurrency.valueAsNumber;
-  const max = mode === "percent" ? MAX_FETCH_CONCURRENCY_PERCENT : MAX_FETCH_CONCURRENCY;
-  if (!Number.isInteger(value) || value < MIN_FETCH_CONCURRENCY || value > max) {
-    setValidation(mode === "percent"
-      ? `并发百分比必须是 ${MIN_FETCH_CONCURRENCY} 到 ${MAX_FETCH_CONCURRENCY_PERCENT} 之间的整数。`
-      : `并发数量必须是 ${MIN_FETCH_CONCURRENCY} 到 ${MAX_FETCH_CONCURRENCY} 之间的整数。`);
+  if (!Number.isInteger(value) || value < MIN_FETCH_CONCURRENCY) {
+    setValidation(`并发数值必须是大于等于 ${MIN_FETCH_CONCURRENCY} 的整数。`);
     dom.fetchConcurrency.focus();
     throw new ConversionError("invalid_concurrency", "并发设置无效。");
   }
@@ -1196,26 +1185,21 @@ function resolveFetchConcurrencySetting(): FetchConcurrencySetting {
 function resolveFetchConcurrency(setting: FetchConcurrencySetting, totalRequests: number): number {
   if (setting.mode === "fixed") return Math.min(setting.value, Math.max(1, totalRequests));
   const requested = Math.max(1, Math.ceil(totalRequests * setting.value / 100));
-  return Math.min(requested, MAX_FETCH_CONCURRENCY);
+  return Math.min(requested, Math.max(1, totalRequests));
 }
 
 function describeFetchConcurrency(setting: FetchConcurrencySetting, totalRequests: number, effective: number): string {
   if (setting.mode === "percent") {
-    const requested = Math.max(1, Math.ceil(totalRequests * setting.value / 100));
-    const cap = requested > MAX_FETCH_CONCURRENCY ? `，超过并发上限 ${MAX_FETCH_CONCURRENCY}` : "";
-    return `${setting.value}% × ${totalRequests} = ${requested} 个${cap}，实际并发 ${effective} 个`;
+    return `${setting.value}% × ${totalRequests} 个远程请求，实际并发 ${effective} 个`;
   }
   return `固定 ${setting.value} 个，本次实际并发 ${effective} 个`;
 }
 
 function syncFetchConcurrencyInput() {
   const percent = dom.fetchConcurrencyMode.value === "percent";
-  const max = percent ? MAX_FETCH_CONCURRENCY_PERCENT : MAX_FETCH_CONCURRENCY;
-  dom.fetchConcurrency.max = String(max);
-  if (dom.fetchConcurrency.valueAsNumber > max) dom.fetchConcurrency.value = String(max);
   dom.fetchConcurrency.title = percent
-    ? `按本次远程请求数的百分比计算，实际并发最高 ${MAX_FETCH_CONCURRENCY} 个`
-    : `固定并发 ${MIN_FETCH_CONCURRENCY}–${MAX_FETCH_CONCURRENCY} 个`;
+    ? "按本次远程请求数的百分比计算，实际并发不会超过本次请求数"
+    : "固定并发数量";
 }
 
 function shouldSkipCertificateVerification(): boolean {
@@ -1256,8 +1240,7 @@ function updateCloudflareDetectionSetting(enabled: boolean) {
 function updateCloudflareDetectionConcurrency() {
   const value = dom.cloudflareDetectionConcurrency.valueAsNumber;
   if (!Number.isInteger(value)
-    || value < MIN_CLOUDFLARE_DETECTION_CONCURRENCY
-    || value > MAX_CLOUDFLARE_DETECTION_CONCURRENCY) {
+    || value < MIN_CLOUDFLARE_DETECTION_CONCURRENCY) {
     dom.cloudflareDetectionConcurrency.value = String(cloudflareDetectionConcurrency);
     return;
   }
@@ -1273,8 +1256,7 @@ function updateCloudflareDetectionConcurrency() {
 function updateRegionLookupConcurrency() {
   const value = dom.regionLookupConcurrency.valueAsNumber;
   if (!Number.isInteger(value)
-    || value < MIN_REGION_LOOKUP_CONCURRENCY
-    || value > MAX_REGION_LOOKUP_CONCURRENCY) {
+    || value < MIN_REGION_LOOKUP_CONCURRENCY) {
     dom.regionLookupConcurrency.value = String(regionLookupConcurrency);
     return;
   }
