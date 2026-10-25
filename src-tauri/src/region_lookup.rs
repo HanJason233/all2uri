@@ -65,6 +65,7 @@ pub struct CloudflareLookupNode {
 pub struct CloudflareLookupResult {
     pub id: String,
     pub is_cloudflare: Option<bool>,
+    pub entry_ips: Vec<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -184,13 +185,31 @@ pub async fn lookup_cloudflare_entries(
     let mut results: Vec<Option<CloudflareLookupResult>> = (0..nodes.len()).map(|_| None).collect();
     for (server, indexed_nodes) in nodes_by_server {
         tasks.spawn(async move {
-            let addresses = resolve_public_addresses(&server).await;
-            let is_cloudflare = (!addresses.is_empty())
-                .then(|| addresses.into_iter().any(is_cloudflare_address));
+            let addresses = resolve_server_addresses(&server).await;
+            let host = server.trim().trim_start_matches('[').trim_end_matches(']');
+            let public_addresses: Vec<IpAddr> = if is_local_name(host) {
+                Vec::new()
+            } else {
+                addresses
+                    .iter()
+                    .copied()
+                    .filter(|address| !is_special_ip(*address))
+                    .collect()
+            };
+            let is_cloudflare = (!public_addresses.is_empty())
+                .then(|| public_addresses.iter().copied().any(is_cloudflare_address));
+            let entry_ips: Vec<String> = addresses.iter().map(ToString::to_string).collect();
             indexed_nodes
                 .into_iter()
                 .map(|(index, id)| {
-                    (index, CloudflareLookupResult { id, is_cloudflare })
+                    (
+                        index,
+                        CloudflareLookupResult {
+                            id,
+                            is_cloudflare,
+                            entry_ips: entry_ips.clone(),
+                        },
+                    )
                 })
                 .collect::<Vec<_>>()
         });
@@ -277,6 +296,19 @@ async fn resolve_public_addresses(server: &str) -> Vec<IpAddr> {
         return Vec::new();
     }
 
+    resolve_server_addresses(server)
+        .await
+        .into_iter()
+        .filter(|address| !is_special_ip(*address))
+        .collect()
+}
+
+async fn resolve_server_addresses(server: &str) -> Vec<IpAddr> {
+    let host = server.trim().trim_start_matches('[').trim_end_matches(']');
+    if host.is_empty() {
+        return Vec::new();
+    }
+
     let addresses: Vec<SocketAddr> = if let Ok(ip) = host.parse::<IpAddr>() {
         vec![SocketAddr::new(ip, 443)]
     } else {
@@ -290,7 +322,7 @@ async fn resolve_public_addresses(server: &str) -> Vec<IpAddr> {
     addresses
         .into_iter()
         .map(|address| address.ip())
-        .filter(|address| !is_special_ip(*address) && seen.insert(*address))
+        .filter(|address| seen.insert(*address))
         .collect()
 }
 

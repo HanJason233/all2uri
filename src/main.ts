@@ -39,6 +39,7 @@ interface CategorizedOutput {
   id: string;
   name: string;
   server: string;
+  entryIps: string[] | null;
   protocol: ProxyProtocol;
   uri: string;
   countryCode: string | null;
@@ -384,8 +385,8 @@ interface ResizeState {
 }
 
 const MIN_PANEL_WIDTH = 200;
-const SPLITTER_WIDTH = 9;
-const DEFAULT_PANEL_RATIOS = [0.29, 0.42, 0.29];
+const SPLITTER_WIDTH = 13;
+const DEFAULT_PANEL_RATIOS = [0.25, 0.34, 0.41];
 
 let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
@@ -1146,22 +1147,20 @@ function renderOutputTableRow(entry: CategorizedOutput): HTMLTableRowElement {
   row.dataset.nodeId = entry.id;
 
   const nameCell = document.createElement("td");
-  const node = document.createElement("div");
-  node.className = "output-node-main";
   const name = document.createElement("strong");
   name.className = "output-table-primary";
   name.textContent = entry.name.trim() || "未命名节点";
   name.title = name.textContent;
-  const server = document.createElement("span");
-  server.className = "output-node-meta";
-  server.textContent = entry.server || "—";
-  server.title = server.textContent;
-  const uri = document.createElement("code");
-  uri.className = "output-table-uri";
-  uri.textContent = entry.uri;
-  uri.title = entry.uri;
-  node.append(name, server, uri);
-  nameCell.append(node);
+  nameCell.append(name);
+
+  const entryIpCell = document.createElement("td");
+  const entryIp = document.createElement("span");
+  entryIp.className = "output-table-truncate output-table-ip";
+  entryIp.textContent = entry.entryIps?.length
+    ? entry.entryIps.join(", ")
+    : entry.entryIps === null && cloudflareDetectionState === "running" ? "解析中" : "—";
+  entryIp.title = entry.entryIps?.length ? entry.entryIps.join("\n") : entry.server || entryIp.textContent;
+  entryIpCell.append(entryIp);
 
   const protocolCell = document.createElement("td");
   protocolCell.textContent = getProtocolLabel(entry.protocol);
@@ -1201,7 +1200,7 @@ function renderOutputTableRow(entry: CategorizedOutput): HTMLTableRowElement {
   copy.addEventListener("click", () => void copyUris([entry.uri], `节点“${name.textContent}”`));
   actionCell.append(copy);
 
-  row.append(nameCell, protocolCell, regionCell, entryCell, actionCell);
+  row.append(nameCell, entryIpCell, protocolCell, regionCell, entryCell, actionCell);
   return row;
 }
 
@@ -1305,12 +1304,20 @@ async function enrichOutputCloudflare() {
   for (const entry of entries) entry.isCloudflare = null;
   renderOutputFilter();
   try {
-    const results = await invoke<Array<{ id: string; isCloudflare: boolean | null }>>("lookup_cloudflare_entries", {
+    const results = await invoke<Array<{
+      id: string;
+      isCloudflare: boolean | null;
+      entryIps: string[];
+    }>>("lookup_cloudflare_entries", {
       nodes: entries.map(({ id, server }) => ({ id, server })),
     });
     if (runId !== cloudflareDetectionRunId) return;
-    const resultById = new Map(results.map(result => [result.id, result.isCloudflare]));
-    for (const entry of entries) entry.isCloudflare = resultById.get(entry.id) ?? null;
+    const resultById = new Map(results.map(result => [result.id, result] as const));
+    for (const entry of entries) {
+      const result = resultById.get(entry.id);
+      entry.isCloudflare = result?.isCloudflare ?? null;
+      entry.entryIps = result?.entryIps ?? [];
+    }
     cloudflareDetectionState = "done";
   } catch (error) {
     if (runId !== cloudflareDetectionRunId) return;
@@ -1329,6 +1336,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
       id: `${item.node.id}-${index}`,
       name: item.node.name,
       server: item.node.server,
+      entryIps: null,
       protocol: item.node.protocol,
       uri: item.uri!,
       countryCode: null,

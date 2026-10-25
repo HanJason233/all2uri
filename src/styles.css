@@ -89,9 +89,9 @@ select:focus-visible {
 }
 
 .workspace {
-  --panel-a: 0.29fr;
-  --panel-b: 0.42fr;
-  --panel-c: 0.29fr;
+  --panel-a: 0.25fr;
+  --panel-b: 0.34fr;
+  --panel-c: 0.41fr;
   display: grid;
   flex: 1;
   grid-template-columns: minmax(200px, var(--panel-a)) 13px minmax(200px, var(--panel-b)) 13px minmax(200px, var(--panel-c));
@@ -859,7 +859,7 @@ label.settings-row {
 
 .output-table {
   width: 100%;
-  min-width: 380px;
+  min-width: 560px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 11px;
@@ -898,22 +898,15 @@ label.settings-row {
   background: var(--surface-soft);
 }
 
-.output-table th:nth-child(1) { width: auto; }
-.output-table th:nth-child(2) { width: 64px; }
-.output-table th:nth-child(3) { width: 64px; }
-.output-table th:nth-child(4) { width: 56px; }
-.output-table th:nth-child(5) { width: 64px; }
-
-.output-node-main {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
+.output-table th:nth-child(1) { width: 128px; }
+.output-table th:nth-child(2) { width: 152px; }
+.output-table th:nth-child(3) { width: 72px; }
+.output-table th:nth-child(4) { width: 82px; }
+.output-table th:nth-child(5) { width: 62px; }
+.output-table th:nth-child(6) { width: 64px; }
 
 .output-table-primary,
-.output-node-meta,
-.output-table-truncate,
-.output-table-uri {
+.output-table-truncate {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -926,12 +919,7 @@ label.settings-row {
   font-weight: 600;
 }
 
-.output-node-meta {
-  color: var(--text-muted);
-  font-size: 9px;
-}
-
-.output-table-uri {
+.output-table-ip {
   color: var(--text-muted);
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 9px;
