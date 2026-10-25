@@ -1201,7 +1201,7 @@ function renderOutputTableRow(entry: CategorizedOutput): HTMLTableRowElement {
   } else if (entry.isCloudflare === false) {
     entryBadge.textContent = "非 CF";
     entryBadge.classList.add("is-non-cloudflare");
-  } else if (outputFilter.cloudflareEntry !== "all" && cloudflareDetectionState === "running") {
+  } else if (cloudflareDetectionState === "running") {
     entryBadge.textContent = "检测中";
   } else {
     entryBadge.textContent = "—";
@@ -1240,12 +1240,11 @@ function renderOutputFilter() {
   const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
   const cloudflareCount = outputEntries.filter(entry => entry.isCloudflare === true).length;
   const unresolvedCloudflareCount = outputEntries.filter(entry => entry.isCloudflare === null).length;
-  const cloudflareFilterActive = outputFilter.cloudflareEntry !== "all";
-  const cloudflareStatus = cloudflareDetectionState === "running" && cloudflareFilterActive
-    ? " · 服务器入口检测中"
-    : cloudflareDetectionState === "done" && cloudflareFilterActive
+  const cloudflareStatus = cloudflareDetectionState === "running"
+    ? " · CF 入口检测中"
+    : cloudflareDetectionState === "done"
       ? ` · CF 入口 ${cloudflareCount} 个${unresolvedCloudflareCount > 0 ? `（${unresolvedCloudflareCount} 个未解析）` : ""}`
-      : "";
+      : cloudflareDetectionState === "error" ? " · CF 入口检测失败" : "";
   const countText = isOutputFilterActive()
     ? `${uris.length} / ${outputUris.length} 个节点`
     : `${outputUris.length} 个节点`;
@@ -1315,13 +1314,6 @@ async function enrichOutputCloudflare() {
   if (entries.length === 0) {
     cloudflareDetectionRunId += 1;
     cloudflareDetectionState = "idle";
-    return;
-  }
-  if (outputFilter.cloudflareEntry === "all") {
-    if (cloudflareDetectionState === "running") {
-      cloudflareDetectionRunId += 1;
-      cloudflareDetectionState = "idle";
-    }
     return;
   }
   if (cloudflareDetectionState === "running") return;
