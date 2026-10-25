@@ -887,6 +887,12 @@ label.settings-row {
 .output-table td {
   padding: 9px 10px;
   text-align: left;
+  border-right: 1px solid var(--border);
+}
+
+.output-table th:last-child,
+.output-table td:last-child {
+  border-right: 0;
 }
 
 .output-table th {
