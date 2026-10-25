@@ -24,6 +24,9 @@ mod region_lookup;
 
 const DEFAULT_MAX_REDIRECTS: usize = 10;
 const MAX_REDIRECTS_LIMIT: usize = 50;
+const DEFAULT_REMOTE_TIMEOUT_SECONDS: u64 = 30;
+const MIN_REMOTE_TIMEOUT_SECONDS: u64 = 1;
+const MAX_REMOTE_TIMEOUT_SECONDS: u64 = 600;
 const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_URL_CHARS: usize = 8192;
 const MAX_COMPLETED_REQUEST_IDS: usize = 2048;
@@ -59,6 +62,7 @@ struct RequestOptions {
     skip_certificate_verification: bool,
     allow_local_network: bool,
     max_redirects: usize,
+    timeout_seconds: u64,
 }
 
 #[derive(Default)]
@@ -172,6 +176,7 @@ impl Default for RequestOptions {
             skip_certificate_verification: false,
             allow_local_network: false,
             max_redirects: DEFAULT_MAX_REDIRECTS,
+            timeout_seconds: DEFAULT_REMOTE_TIMEOUT_SECONDS,
         }
     }
 }
@@ -182,6 +187,12 @@ impl RequestOptions {
             return Err(FetchFailure::new(
                 "invalid_redirect_limit",
                 "最大重定向次数不能超过 50。",
+            ));
+        }
+        if !(MIN_REMOTE_TIMEOUT_SECONDS..=MAX_REMOTE_TIMEOUT_SECONDS).contains(&self.timeout_seconds) {
+            return Err(FetchFailure::new(
+                "invalid_timeout",
+                "远程订阅超时必须在 1 到 600 秒之间。",
             ));
         }
         Ok(self)
@@ -363,7 +374,7 @@ async fn resolve_target_addresses(url: &Url, allow_local_network: bool) -> Resul
 fn build_client(options: RequestOptions, url: &Url, addresses: &[SocketAddr]) -> Result<Client, FetchFailure> {
     let mut builder = Client::builder()
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(options.timeout_seconds))
         .redirect(Policy::none());
 
     if let Some(domain) = url.domain() {
@@ -569,20 +580,33 @@ async fn fetch_subscription(
     skip_certificate_verification: Option<bool>,
     allow_local_network: Option<bool>,
     max_redirects: Option<usize>,
+    timeout_seconds: Option<u64>,
     cancellations: tauri::State<'_, FetchCancellationRegistry>,
 ) -> Result<FetchedSubscription, FetchFailure> {
     let options = RequestOptions {
         skip_certificate_verification: skip_certificate_verification.unwrap_or(false),
         allow_local_network: allow_local_network.unwrap_or(false),
         max_redirects: max_redirects.unwrap_or(DEFAULT_MAX_REDIRECTS),
-    };
+        timeout_seconds: timeout_seconds.unwrap_or(DEFAULT_REMOTE_TIMEOUT_SECONDS),
+    }
+    .validate()?;
     let registered = request_id
         .as_deref()
         .map(|request_id| cancellations.register(request_id).map(|token| (request_id.to_string(), token)))
         .transpose()?;
     let fallback = Arc::new(FetchCancellation::default());
     let token = registered.as_ref().map(|(_, token)| token).unwrap_or(&fallback);
-    let result = fetch_subscription_inner_cancellable(&url, user_agent.as_deref(), options, token).await;
+    let result = tokio::select! {
+        biased;
+        _ = token.cancelled() => Err(FetchFailure::new("cancelled", "订阅请求已取消。")),
+        result = tokio::time::timeout(
+            Duration::from_secs(options.timeout_seconds),
+            fetch_subscription_inner_cancellable(&url, user_agent.as_deref(), options, token),
+        ) => result.unwrap_or_else(|_| Err(FetchFailure::new(
+            "timeout",
+            format!("远程订阅请求超过 {} 秒。", options.timeout_seconds),
+        ))),
+    };
     if let (Some(request_id), Some((_, token))) = (request_id.as_deref(), registered.as_ref()) {
         cancellations.unregister(request_id, token);
     }

@@ -50,8 +50,11 @@ interface CategorizedOutput {
 type CloudflareEntryFilter = "all" | "yes" | "no";
 
 interface OutputFilter {
+  protocolsEnabled: boolean;
   protocols: ProxyProtocol[];
+  countriesEnabled: boolean;
   countries: string[];
+  cloudflareEntryEnabled: boolean;
   cloudflareEntry: CloudflareEntryFilter;
 }
 
@@ -76,6 +79,9 @@ const MIN_FETCH_CONCURRENCY = 1;
 const MAX_FETCH_CONCURRENCY = 20;
 const MAX_FETCH_CONCURRENCY_PERCENT = 100;
 const MAX_REDIRECTS = 50;
+const MIN_REMOTE_TIMEOUT_SECONDS = 1;
+const DEFAULT_REMOTE_TIMEOUT_SECONDS = 30;
+const MAX_REMOTE_TIMEOUT_SECONDS = 600;
 const MAX_BATCH_INPUT_BYTES = 64 * 1024 * 1024;
 const MIN_REMOTE_BATCH_BYTES = 1024 * 1024;
 type FetchConcurrencyMode = "fixed" | "percent";
@@ -158,7 +164,14 @@ function loadGeoIpDatabasePath(): string {
 }
 
 function loadOutputFilter(): OutputFilter {
-  const empty = (): OutputFilter => ({ protocols: [], countries: [], cloudflareEntry: "all" });
+  const empty = (): OutputFilter => ({
+    protocolsEnabled: false,
+    protocols: [],
+    countriesEnabled: false,
+    countries: [],
+    cloudflareEntryEnabled: false,
+    cloudflareEntry: "all",
+  });
   try {
     const stored = window.localStorage.getItem(OUTPUT_FILTER_STORAGE_KEY);
     if (stored === null) return empty();
@@ -175,7 +188,16 @@ function loadOutputFilter(): OutputFilter {
       candidate.cloudflareEntry === "yes" || candidate.cloudflareEntry === "no" || candidate.cloudflareEntry === "all"
         ? candidate.cloudflareEntry
         : candidate.cloudflare === true ? "yes" : "all";
-    return { protocols, countries, cloudflareEntry };
+    return {
+      protocolsEnabled: typeof candidate.protocolsEnabled === "boolean" ? candidate.protocolsEnabled : protocols.length > 0,
+      protocols,
+      countriesEnabled: typeof candidate.countriesEnabled === "boolean" ? candidate.countriesEnabled : countries.length > 0,
+      countries,
+      cloudflareEntryEnabled: typeof candidate.cloudflareEntryEnabled === "boolean"
+        ? candidate.cloudflareEntryEnabled
+        : cloudflareEntry !== "all",
+      cloudflareEntry,
+    };
   } catch {
     return empty();
   }
@@ -393,6 +415,7 @@ const dom = {
   fetchConcurrency: getElement<HTMLInputElement>("fetch-concurrency"),
   fetchConcurrencyMode: getElement<HTMLSelectElement>("fetch-concurrency-mode"),
   maxRedirects: getElement<HTMLInputElement>("max-redirects"),
+  remoteTimeoutSeconds: getElement<HTMLInputElement>("remote-timeout-seconds"),
   regionLookupMethods: getElement<HTMLDivElement>("region-lookup-methods"),
   geoIpDatabaseName: getElement<HTMLSpanElement>("geoip-database-name"),
   chooseGeoIpDatabaseButton: getElement<HTMLButtonElement>("choose-geoip-database"),
@@ -414,7 +437,6 @@ const dom = {
   outputSettingsDialogClose: getElement<HTMLButtonElement>("output-settings-dialog-close"),
   outputFilterButton: getElement<HTMLButtonElement>("output-filter-button"),
   outputColumnResetButton: getElement<HTMLButtonElement>("output-column-reset-button"),
-  outputFilterSummary: getElement<HTMLParagraphElement>("output-filter-summary"),
   outputFilterCount: getElement<HTMLSpanElement>("output-filter-count"),
   outputTableWrap: getElement<HTMLDivElement>("output-table-wrap"),
   outputTable: getElement<HTMLTableElement>("output-table"),
@@ -423,10 +445,13 @@ const dom = {
   outputFilterDialogClose: getElement<HTMLButtonElement>("output-filter-dialog-close"),
   outputFilterDialogCancel: getElement<HTMLButtonElement>("output-filter-dialog-cancel"),
   outputFilterDialogSave: getElement<HTMLButtonElement>("output-filter-dialog-save"),
+  outputFilterProtocolEnabled: getElement<HTMLInputElement>("output-filter-protocol-enabled"),
   outputFilterProtocolOptions: getElement<HTMLDivElement>("output-filter-protocol-options"),
   outputFilterProtocolSummary: getElement<HTMLSpanElement>("output-filter-protocol-summary"),
+  outputFilterRegionEnabled: getElement<HTMLInputElement>("output-filter-region-enabled"),
   outputFilterRegionOptions: getElement<HTMLDivElement>("output-filter-region-options"),
   outputFilterRegionSummary: getElement<HTMLSpanElement>("output-filter-region-summary"),
+  outputFilterCloudflareEnabled: getElement<HTMLInputElement>("output-filter-cf-enabled"),
   outputFilterCloudflareEntry: getElement<HTMLSelectElement>("output-filter-cf-entry"),
   outputFilterCloudflareSummary: getElement<HTMLSpanElement>("output-filter-cf-summary"),
   outputOverview: getElement<HTMLSpanElement>("output-overview"),
@@ -473,7 +498,10 @@ let regionLookupRunId = 0;
 let cloudflareDetectionState: "idle" | "running" | "done" | "error" = "idle";
 let cloudflareDetectionRunId = 0;
 let draftFilterProtocols: ProxyProtocol[] = [];
+let draftFilterProtocolsEnabled = false;
 let draftFilterCountries: string[] = [];
+let draftFilterCountriesEnabled = false;
+let draftFilterCloudflareEnabled = false;
 let draftFilterCloudflareEntry: CloudflareEntryFilter = "all";
 let duplicateCount = 0;
 let activeSourceDocuments: SourceDocument[] = [];
@@ -1067,6 +1095,16 @@ function resolveMaxRedirects(): number {
   return maxRedirects;
 }
 
+function resolveRemoteTimeoutSeconds(): number {
+  const timeoutSeconds = dom.remoteTimeoutSeconds.valueAsNumber;
+  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < MIN_REMOTE_TIMEOUT_SECONDS || timeoutSeconds > MAX_REMOTE_TIMEOUT_SECONDS) {
+    setValidation(`远程订阅超时必须是 ${MIN_REMOTE_TIMEOUT_SECONDS} 到 ${MAX_REMOTE_TIMEOUT_SECONDS} 秒之间的整数。`);
+    dom.remoteTimeoutSeconds.focus();
+    throw new ConversionError("invalid_timeout", "远程订阅超时设置无效。");
+  }
+  return timeoutSeconds;
+}
+
 function resolveFetchConcurrencySetting(): FetchConcurrencySetting {
   const mode: FetchConcurrencyMode = dom.fetchConcurrencyMode.value === "percent" ? "percent" : "fixed";
   const value = dom.fetchConcurrency.valueAsNumber;
@@ -1144,6 +1182,7 @@ function setBusy(busy: boolean) {
   dom.fetchConcurrency.disabled = busy;
   dom.fetchConcurrencyMode.disabled = busy;
   dom.maxRedirects.disabled = busy;
+  dom.remoteTimeoutSeconds.disabled = busy;
   dom.deduplicateOutput.disabled = busy;
   dom.includeLossyOutput.disabled = busy;
   dom.skipCertificateVerification.disabled = busy;
@@ -1176,10 +1215,11 @@ function appendConversionDiagnostics(result: ConversionResult) {
 }
 
 function outputEntryMatchesFilter(entry: CategorizedOutput): boolean {
-  if (outputFilter.protocols.length > 0 && !outputFilter.protocols.includes(entry.protocol)) return false;
-  if (outputFilter.countries.length > 0 && !outputFilter.countries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE)) return false;
-  if (outputFilter.cloudflareEntry === "yes" && entry.isCloudflare !== true) return false;
-  if (outputFilter.cloudflareEntry === "no" && entry.isCloudflare !== false) return false;
+  if (outputFilter.protocolsEnabled && !outputFilter.protocols.includes(entry.protocol)) return false;
+  if (outputFilter.countriesEnabled && !outputFilter.countries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE)) return false;
+  if (outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "all") return false;
+  if (outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "yes" && entry.isCloudflare !== true) return false;
+  if (outputFilter.cloudflareEntryEnabled && outputFilter.cloudflareEntry === "no" && entry.isCloudflare !== false) return false;
   return true;
 }
 
@@ -1192,18 +1232,7 @@ function getFilteredOutputUris(): string[] {
 }
 
 function isOutputFilterActive(): boolean {
-  return outputFilter.protocols.length > 0 || outputFilter.countries.length > 0 || outputFilter.cloudflareEntry !== "all";
-}
-
-function outputFilterSummaryText(): string {
-  if (!isOutputFilterActive()) return "全部节点";
-  const parts = [
-    outputFilter.protocols.length ? outputFilter.protocols.map(getProtocolLabel).join(" / ") : "全部协议",
-    outputFilter.countries.length ? outputFilter.countries.map(countryNameForCode).join("、") : "全部地区",
-  ];
-  if (outputFilter.cloudflareEntry === "yes") parts.push("CF 入口");
-  else if (outputFilter.cloudflareEntry === "no") parts.push("非 CF 入口");
-  return parts.join(" · ");
+  return outputFilter.protocolsEnabled || outputFilter.countriesEnabled || outputFilter.cloudflareEntryEnabled;
 }
 
 function availableOutputRegionCodes(): string[] {
@@ -1218,15 +1247,25 @@ function availableOutputRegionCodes(): string[] {
 }
 
 function updateOutputFilterDialogSummaries() {
-  dom.outputFilterProtocolSummary.textContent = draftFilterProtocols.length
-    ? `已选 ${draftFilterProtocols.length} 种协议`
-    : "全部协议";
-  dom.outputFilterRegionSummary.textContent = draftFilterCountries.length
-    ? `已选 ${draftFilterCountries.length} 个地区`
-    : "全部地区";
-  dom.outputFilterCloudflareSummary.textContent = draftFilterCloudflareEntry === "yes"
-    ? "CF 入口"
-    : draftFilterCloudflareEntry === "no" ? "非 CF 入口" : "全部入口";
+  dom.outputFilterProtocolEnabled.checked = draftFilterProtocolsEnabled;
+  dom.outputFilterProtocolSummary.textContent = !draftFilterProtocolsEnabled
+    ? "未启用"
+    : draftFilterProtocols.length ? `已选 ${draftFilterProtocols.length} 种协议` : "未选择协议";
+  dom.outputFilterRegionEnabled.checked = draftFilterCountriesEnabled;
+  dom.outputFilterRegionSummary.textContent = !draftFilterCountriesEnabled
+    ? "未启用"
+    : draftFilterCountries.length ? `已选 ${draftFilterCountries.length} 个地区` : "未选择地区";
+  dom.outputFilterCloudflareEnabled.checked = draftFilterCloudflareEnabled;
+  dom.outputFilterCloudflareSummary.textContent = !draftFilterCloudflareEnabled
+    ? "未启用"
+    : draftFilterCloudflareEntry === "yes"
+      ? "CF 入口"
+      : draftFilterCloudflareEntry === "no" ? "非 CF 入口" : "未选择入口";
+  dom.outputFilterProtocolOptions.querySelectorAll<HTMLInputElement>("input[type='checkbox']")
+    .forEach(checkbox => { checkbox.disabled = !draftFilterProtocolsEnabled; });
+  dom.outputFilterRegionOptions.querySelectorAll<HTMLInputElement>("input[type='checkbox']")
+    .forEach(checkbox => { checkbox.disabled = !draftFilterCountriesEnabled; });
+  dom.outputFilterCloudflareEntry.disabled = !draftFilterCloudflareEnabled;
   dom.outputFilterCloudflareEntry.value = draftFilterCloudflareEntry;
 }
 
@@ -1290,7 +1329,10 @@ function renderOutputFilterDialogOptions() {
 function openOutputFilterDialog() {
   if (dom.outputFilterDialog.open) return;
   draftFilterProtocols = [...outputFilter.protocols];
+  draftFilterProtocolsEnabled = outputFilter.protocolsEnabled;
   draftFilterCountries = [...outputFilter.countries];
+  draftFilterCountriesEnabled = outputFilter.countriesEnabled;
+  draftFilterCloudflareEnabled = outputFilter.cloudflareEntryEnabled;
   draftFilterCloudflareEntry = outputFilter.cloudflareEntry;
   renderOutputFilterDialogOptions();
   dom.outputFilterDialog.showModal();
@@ -1298,8 +1340,11 @@ function openOutputFilterDialog() {
 
 function saveOutputFilterDialog() {
   outputFilter = {
+    protocolsEnabled: draftFilterProtocolsEnabled,
     protocols: [...draftFilterProtocols],
+    countriesEnabled: draftFilterCountriesEnabled,
     countries: [...draftFilterCountries],
+    cloudflareEntryEnabled: draftFilterCloudflareEnabled,
     cloudflareEntry: draftFilterCloudflareEntry,
   };
   saveOutputFilter();
@@ -1385,14 +1430,11 @@ function renderOutputFilter() {
   const filteredEntries = getFilteredOutputEntries();
   const uris = filteredEntries.map(entry => entry.uri);
   const value = uris.join("\n");
-  const summary = outputFilterSummaryText();
 
   dom.outputTableBody.replaceChildren();
   filteredEntries.forEach((entry, index) => dom.outputTableBody.append(renderOutputTableRow(entry, index)));
   dom.outputTableWrap.hidden = false;
   dom.outputFilterCount.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([value]).size)}`;
-  dom.outputFilterSummary.textContent = summary;
-  dom.outputFilterSummary.title = summary;
 
   const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
   const cloudflareCount = outputEntries.filter(entry => entry.isCloudflare === true).length;
@@ -1633,6 +1675,7 @@ async function fetchSubscriptionWithFallback(
   url: string,
   userAgent: string | null,
   maxRedirects: number,
+  timeoutSeconds: number,
   sourceId: string,
   requestId: string,
   signal: AbortSignal,
@@ -1655,6 +1698,7 @@ async function fetchSubscriptionWithFallback(
         skipCertificateVerification: shouldSkipCertificateVerification(),
         allowLocalNetwork: shouldAllowLocalNetwork(),
         maxRedirects,
+        timeoutSeconds,
       });
     } finally {
       signal.removeEventListener("abort", cancelRequest);
@@ -1696,12 +1740,14 @@ async function startConversion() {
   let fetchConcurrency = MIN_FETCH_CONCURRENCY;
   let fetchConcurrencySetting: FetchConcurrencySetting | null = null;
   let maxRedirects = 0;
+  let remoteTimeoutSeconds = DEFAULT_REMOTE_TIMEOUT_SECONDS;
   if (input.urls.length > 0) {
     try {
       userAgent = resolveUserAgent();
       fetchConcurrencySetting = resolveFetchConcurrencySetting();
       fetchConcurrency = resolveFetchConcurrency(fetchConcurrencySetting, input.urls.length);
       maxRedirects = resolveMaxRedirects();
+      remoteTimeoutSeconds = resolveRemoteTimeoutSeconds();
     } catch (error) {
       showToast(failureFrom(error).message, true);
       return;
@@ -1823,6 +1869,7 @@ async function startConversion() {
         url,
         userAgent,
         maxRedirects,
+        remoteTimeoutSeconds,
         source.sourceId,
         `${fetchRunId}:${source.sourceId}`,
         runController.signal,
@@ -2035,6 +2082,18 @@ function bindEvents() {
   dom.outputFilterDialogClose.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogSave.addEventListener("click", saveOutputFilterDialog);
+  dom.outputFilterProtocolEnabled.addEventListener("change", () => {
+    draftFilterProtocolsEnabled = dom.outputFilterProtocolEnabled.checked;
+    updateOutputFilterDialogSummaries();
+  });
+  dom.outputFilterRegionEnabled.addEventListener("change", () => {
+    draftFilterCountriesEnabled = dom.outputFilterRegionEnabled.checked;
+    updateOutputFilterDialogSummaries();
+  });
+  dom.outputFilterCloudflareEnabled.addEventListener("change", () => {
+    draftFilterCloudflareEnabled = dom.outputFilterCloudflareEnabled.checked;
+    updateOutputFilterDialogSummaries();
+  });
   dom.outputFilterCloudflareEntry.addEventListener("change", () => {
     const value = dom.outputFilterCloudflareEntry.value;
     draftFilterCloudflareEntry = value === "yes" || value === "no" ? value : "all";
@@ -2065,7 +2124,7 @@ function bindEvents() {
   dom.deduplicateOutput.addEventListener("change", refreshForOutputSettingChange);
   dom.includeLossyOutput.addEventListener("change", refreshForOutputSettingChange);
 
-  for (const input of [dom.fetchConcurrency, dom.maxRedirects]) {
+  for (const input of [dom.fetchConcurrency, dom.maxRedirects, dom.remoteTimeoutSeconds]) {
     input.addEventListener("input", () => {
       if (!dom.validation.hidden) setValidation();
     });

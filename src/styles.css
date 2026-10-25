@@ -800,52 +800,6 @@ label.settings-row {
   font-weight: 650;
 }
 
-.output-filter-toolbar {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.output-filter-toolbar > div {
-  min-width: 0;
-}
-
-.output-filter-toolbar strong {
-  display: block;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.output-filter-toolbar p {
-  margin: 3px 0 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.output-filter-toolbar .secondary-button {
-  flex: 0 0 auto;
-  min-height: 32px;
-  padding: 0 10px;
-  font-size: 11px;
-  border-radius: 2px;
-}
-
-.output-filter-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 6px;
-  align-items: center;
-}
-
 .output-filter-result {
   display: flex;
   flex: 1;
@@ -1151,11 +1105,41 @@ body.resizing-output-columns * {
   justify-content: space-between;
 }
 
+.output-filter-section-title {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: center;
+}
+
 .output-rule-section-heading h3 {
   margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 650;
+}
+
+.output-filter-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 5px;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.output-filter-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.output-rule-section-heading .output-filter-toggle span {
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
 .output-rule-section-heading span {
@@ -1326,6 +1310,11 @@ body.resizing-output-columns * {
   border-color: rgba(0, 120, 212, 0.35);
 }
 
+.output-filter-option:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .output-filter-option input {
   flex: 0 0 auto;
   width: 13px;
@@ -1362,6 +1351,11 @@ body.resizing-output-columns * {
 .output-rule-cf-select select:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.output-rule-cf-select select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .output-rule-cf-description {

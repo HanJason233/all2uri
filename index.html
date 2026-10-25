@@ -71,20 +71,6 @@
               </div>
             </div>
 
-            <div class="output-filter-toolbar">
-              <div>
-                <strong>筛选</strong>
-                <p id="output-filter-summary">全部节点</p>
-              </div>
-              <div class="output-filter-actions">
-                <button class="secondary-button" id="output-column-reset-button" type="button" title="恢复初始列宽">
-                  初始化列宽
-                </button>
-                <button class="secondary-button" id="output-filter-button" type="button" aria-haspopup="dialog">
-                  设置筛选
-                </button>
-              </div>
-            </div>
             <div class="output-filter-result">
               <div class="output-filter-result-heading">
                 <span id="output-filter-count">0 个节点 · 0 B</span>
@@ -122,6 +108,8 @@
             <div class="output-global-actions">
               <span id="output-overview">等待输出</span>
               <div>
+                <button class="secondary-button" id="output-column-reset-button" type="button" title="恢复初始列宽">初始化列宽</button>
+                <button class="secondary-button" id="output-filter-button" type="button" aria-haspopup="dialog">设置筛选</button>
                 <button class="secondary-button" id="copy-button" type="button" disabled>复制结果</button>
                 <button class="primary-button compact" id="save-button" type="button" disabled>
                   <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -156,7 +144,6 @@
         <header class="output-rule-dialog-header">
           <div>
             <h2 id="input-settings-dialog-title">输入设置</h2>
-            <p>管理订阅请求方式、并发限制和连接选项。</p>
           </div>
           <button class="output-rule-dialog-close" id="input-settings-dialog-close" type="button" aria-label="关闭输入设置">×</button>
         </header>
@@ -196,12 +183,19 @@
               </span>
             </label>
             <label class="settings-row">
+              <span>远程订阅超时</span>
+              <span class="settings-value">
+                <input id="remote-timeout-seconds" class="settings-control settings-number" type="number" min="1" max="600" step="1" value="30" inputmode="numeric" />
+                <span>秒</span>
+              </span>
+            </label>
+            <label class="settings-row">
               <span>并发请求</span>
               <span class="settings-value">
-                <input id="fetch-concurrency" class="settings-control settings-number" type="number" min="1" max="20" step="1" value="3" inputmode="numeric" />
+                <input id="fetch-concurrency" class="settings-control settings-number" type="number" min="1" max="100" step="1" value="10" inputmode="numeric" />
                 <select id="fetch-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="并发单位">
                   <option value="fixed">个</option>
-                  <option value="percent">%</option>
+                  <option value="percent" selected>%</option>
                 </select>
               </span>
             </label>
@@ -228,7 +222,6 @@
         <header class="output-rule-dialog-header">
           <div>
             <h2 id="output-settings-dialog-title">输出设置</h2>
-            <p>管理转换结果、地区识别方式和 GeoIP 数据文件。</p>
           </div>
           <button class="output-rule-dialog-close" id="output-settings-dialog-close" type="button" aria-label="关闭输出设置">×</button>
         </header>
@@ -237,7 +230,7 @@
             <h3 id="settings-output-title">输出结果</h3>
             <label class="settings-row">
               <span>自动去重</span>
-              <input class="settings-checkbox" id="deduplicate-output" type="checkbox" checked />
+              <input class="settings-checkbox" id="deduplicate-output" type="checkbox" />
             </label>
             <label class="settings-row">
               <span>包含有损结果</span>
@@ -266,34 +259,51 @@
         <header class="output-rule-dialog-header">
           <div>
             <h2 id="output-filter-dialog-title">设置筛选条件</h2>
-            <p>协议类型、地区和 CF 入口同时生效；同类多选按“或”匹配。不选协议或地区表示全部。</p>
           </div>
           <button class="output-rule-dialog-close" id="output-filter-dialog-close" type="button" aria-label="关闭筛选设置">×</button>
         </header>
         <div class="output-rule-dialog-body">
           <section class="output-rule-section" aria-labelledby="output-filter-protocol-title">
             <div class="output-rule-section-heading">
-              <h3 id="output-filter-protocol-title">协议类型</h3>
-              <span id="output-filter-protocol-summary">全部协议</span>
+              <div class="output-filter-section-title">
+                <h3 id="output-filter-protocol-title">协议类型</h3>
+                <label class="output-filter-toggle">
+                  <input id="output-filter-protocol-enabled" type="checkbox" aria-label="启用协议类型筛选" />
+                  <span>启用</span>
+                </label>
+              </div>
+              <span id="output-filter-protocol-summary">未启用</span>
             </div>
             <div class="output-rule-options" id="output-filter-protocol-options"></div>
           </section>
           <section class="output-rule-section" aria-labelledby="output-filter-region-title">
             <div class="output-rule-section-heading">
-              <h3 id="output-filter-region-title">地区</h3>
-              <span id="output-filter-region-summary">全部地区</span>
+              <div class="output-filter-section-title">
+                <h3 id="output-filter-region-title">地区</h3>
+                <label class="output-filter-toggle">
+                  <input id="output-filter-region-enabled" type="checkbox" aria-label="启用地区筛选" />
+                  <span>启用</span>
+                </label>
+              </div>
+              <span id="output-filter-region-summary">未启用</span>
             </div>
             <div class="output-rule-options" id="output-filter-region-options"></div>
           </section>
           <section class="output-rule-section" aria-labelledby="output-filter-cf-title">
             <div class="output-rule-section-heading">
-              <h3 id="output-filter-cf-title">服务器入口</h3>
-              <span id="output-filter-cf-summary">全部入口</span>
+              <div class="output-filter-section-title">
+                <h3 id="output-filter-cf-title">服务器入口</h3>
+                <label class="output-filter-toggle">
+                  <input id="output-filter-cf-enabled" type="checkbox" aria-label="启用服务器入口筛选" />
+                  <span>启用</span>
+                </label>
+              </div>
+              <span id="output-filter-cf-summary">未启用</span>
             </div>
             <label class="output-rule-cf-select">
               <span>是否 CF 入口</span>
               <select id="output-filter-cf-entry">
-                <option value="all">全部</option>
+                <option value="all">请选择入口类型</option>
                 <option value="yes">是</option>
                 <option value="no">否</option>
               </select>
