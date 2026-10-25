@@ -657,6 +657,48 @@ fn read_text_file(path: String) -> Result<String, FetchFailure> {
     Ok(content.trim_start_matches('\u{feff}').to_string())
 }
 
+fn capture_screens_as_png() -> Result<Vec<String>, FetchFailure> {
+    use base64::Engine;
+
+    let screens = screenshots::Screen::all()
+        .map_err(|_| FetchFailure::new("screen_capture_failed", "无法获取屏幕列表。"))?;
+    if screens.is_empty() {
+        return Err(FetchFailure::new("screen_capture_failed", "没有可捕获的屏幕。"));
+    }
+
+    screens
+        .iter()
+        .map(|screen| {
+            let image = screen
+                .capture()
+                .map_err(|_| FetchFailure::new("screen_capture_failed", "屏幕截图失败。"))?;
+            let mut png = std::io::Cursor::new(Vec::new());
+            screenshots::image::DynamicImage::ImageRgba8(image)
+                .write_to(&mut png, screenshots::image::ImageFormat::Png)
+                .map_err(|_| FetchFailure::new("screen_capture_failed", "屏幕截图编码失败。"))?;
+            Ok(base64::engine::general_purpose::STANDARD.encode(png.into_inner()))
+        })
+        .collect()
+}
+
+/// 临时隐藏应用后直接捕获所有显示器，让输入框不遮挡屏幕中的二维码。
+#[tauri::command]
+async fn capture_full_screens(window: tauri::WebviewWindow) -> Result<Vec<String>, FetchFailure> {
+    window
+        .hide()
+        .map_err(|_| FetchFailure::new("screen_capture_failed", "无法准备全屏捕获。"))?;
+    tokio::time::sleep(Duration::from_millis(220)).await;
+
+    let capture_result = match tauri::async_runtime::spawn_blocking(capture_screens_as_png).await {
+        Ok(result) => result,
+        Err(_) => Err(FetchFailure::new("screen_capture_failed", "全屏捕获任务失败。")),
+    };
+    let restore_result = window.show().and_then(|_| window.set_focus());
+    restore_result.map_err(|_| FetchFailure::new("screen_capture_failed", "无法恢复应用窗口。"))?;
+
+    capture_result
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -667,6 +709,7 @@ pub fn run() {
             fetch_subscription,
             cancel_subscription,
             read_text_file,
+            capture_full_screens,
             save_text_file,
             region_lookup::lookup_node_regions,
             region_lookup::lookup_cloudflare_entries

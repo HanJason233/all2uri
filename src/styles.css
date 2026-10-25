@@ -1160,6 +1160,48 @@ label.settings-row {
   gap: 0;
 }
 
+.qr-scanner-source-options {
+  display: grid;
+  gap: 9px;
+  padding: 18px 22px 4px;
+}
+
+.qr-scanner-source-options[hidden],
+.qr-scanner-preview[hidden],
+.qr-scanner-status[hidden] {
+  display: none;
+}
+
+.qr-source-option {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 12px 14px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.qr-source-option:hover {
+  background: var(--accent-soft);
+  border-color: rgba(91, 157, 255, 0.4);
+}
+
+.qr-source-option-title {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.qr-source-option-description {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .qr-scanner-preview {
   position: relative;
   flex: 0 0 auto;

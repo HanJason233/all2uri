@@ -283,18 +283,34 @@
       <div class="output-rule-dialog-content qr-scanner-content">
         <header class="output-rule-dialog-header qr-scanner-header">
           <div>
-            <h2 id="qr-scanner-title">扫描二维码</h2>
-            <p>允许相机访问后，将二维码放入取景框。</p>
+            <h2 id="qr-scanner-title">识别二维码</h2>
+            <p>选择二维码来源，识别出的内容会替换输入框。</p>
           </div>
           <button class="output-rule-dialog-close" id="qr-scanner-close" type="button" aria-label="关闭扫码">×</button>
         </header>
-        <div class="qr-scanner-preview">
-          <video id="qr-scanner-video" autoplay muted playsinline aria-label="相机预览"></video>
+        <section class="qr-scanner-source-options" id="qr-scanner-source-options" role="group" aria-label="二维码来源">
+          <button class="qr-source-option" id="qr-scan-screen-button" type="button">
+            <span class="qr-source-option-title">屏幕扫描</span>
+            <span class="qr-source-option-description">直接截取所有屏幕当前画面并识别。</span>
+          </button>
+          <button class="qr-source-option" id="qr-select-image-button" type="button">
+            <span class="qr-source-option-title">选择图片</span>
+            <span class="qr-source-option-description">从本地图片中识别二维码。</span>
+          </button>
+          <button class="qr-source-option" id="qr-scan-camera-button" type="button">
+            <span class="qr-source-option-title">摄像头扫码</span>
+            <span class="qr-source-option-description">调用相机或电脑摄像头实时识别。</span>
+          </button>
+        </section>
+        <input id="qr-image-input" type="file" accept="image/*" hidden />
+        <div class="qr-scanner-preview" id="qr-scanner-preview" hidden>
+          <video id="qr-scanner-video" autoplay muted playsinline aria-label="屏幕或相机预览"></video>
           <div class="qr-scanner-frame" aria-hidden="true"></div>
         </div>
-        <p class="qr-scanner-status" id="qr-scanner-status" role="status" aria-live="polite">正在启动相机…</p>
+        <p class="qr-scanner-status" id="qr-scanner-status" role="status" aria-live="polite" hidden></p>
         <footer class="qr-scanner-actions">
-          <button class="secondary-button" id="qr-scanner-retry" type="button" hidden>重试相机</button>
+          <button class="secondary-button" id="qr-scanner-source-back" type="button" hidden>选择其他来源</button>
+          <button class="secondary-button" id="qr-scanner-retry" type="button" hidden>重试</button>
           <button class="secondary-button" id="qr-scanner-cancel" type="button">取消</button>
         </footer>
       </div>

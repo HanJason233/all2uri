@@ -315,10 +315,17 @@ const dom = {
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
   importQrButton: getElement<HTMLButtonElement>("import-qr-button"),
   qrScannerDialog: getElement<HTMLDialogElement>("qr-scanner-dialog"),
+  qrScannerSourceOptions: getElement<HTMLElement>("qr-scanner-source-options"),
+  qrScanScreenButton: getElement<HTMLButtonElement>("qr-scan-screen-button"),
+  qrSelectImageButton: getElement<HTMLButtonElement>("qr-select-image-button"),
+  qrScanCameraButton: getElement<HTMLButtonElement>("qr-scan-camera-button"),
+  qrImageInput: getElement<HTMLInputElement>("qr-image-input"),
+  qrScannerPreview: getElement<HTMLDivElement>("qr-scanner-preview"),
   qrScannerVideo: getElement<HTMLVideoElement>("qr-scanner-video"),
   qrScannerStatus: getElement<HTMLParagraphElement>("qr-scanner-status"),
   qrScannerClose: getElement<HTMLButtonElement>("qr-scanner-close"),
   qrScannerCancel: getElement<HTMLButtonElement>("qr-scanner-cancel"),
+  qrScannerSourceBack: getElement<HTMLButtonElement>("qr-scanner-source-back"),
   qrScannerRetry: getElement<HTMLButtonElement>("qr-scanner-retry"),
   workspace: getElement<HTMLElement>("workspace"),
   panelResizers: Array.from(document.querySelectorAll<HTMLElement>(".panel-resizer")),
@@ -405,7 +412,7 @@ let completedSources = 0;
 let fetchRunId = 0;
 const activeFetchRequests = new Set<string>();
 let toastTimer: number | undefined;
-let qrCameraStream: MediaStream | null = null;
+let qrCaptureStream: MediaStream | null = null;
 let qrScanFrame: number | null = null;
 let qrScanCanvas: HTMLCanvasElement | null = null;
 let qrLastScanAt = 0;
@@ -674,13 +681,57 @@ function qrCameraErrorMessage(error: unknown): string {
   return "无法启动相机，请检查相机连接和权限。";
 }
 
-function releaseQrCamera() {
+function decodeQrFromImage(
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  canvas: HTMLCanvasElement,
+  maxSide: number,
+): string | null {
+  if (sourceWidth <= 0 || sourceHeight <= 0) return null;
+  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("无法创建二维码扫描画布");
+  context.drawImage(source, 0, 0, width, height);
+  const image = context.getImageData(0, 0, width, height);
+  return jsQR(image.data, width, height, { inversionAttempts: "attemptBoth" })?.data ?? null;
+}
+
+async function importQrImage(file: File) {
+  if (file.size > 64 * 1024 * 1024) {
+    showToast("图片文件超过 64 MiB 上限", true);
+    return;
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    let content: string | null;
+    try {
+      content = decodeQrFromImage(bitmap, bitmap.width, bitmap.height, document.createElement("canvas"), 4096)?.trim() ?? null;
+    } finally {
+      bitmap.close();
+    }
+    if (!content) {
+      showToast("图片中未识别到二维码", true);
+      return;
+    }
+    closeQrScanner();
+    if (replaceInputContent(content)) showToast("已从图片读取二维码内容");
+  } catch {
+    showToast("无法读取图片，请选择有效的图片文件", true);
+  }
+}
+
+function releaseQrCapture() {
   if (qrScanFrame !== null) {
     cancelAnimationFrame(qrScanFrame);
     qrScanFrame = null;
   }
-  qrCameraStream?.getTracks().forEach(track => track.stop());
-  qrCameraStream = null;
+  qrCaptureStream?.getTracks().forEach(track => track.stop());
+  qrCaptureStream = null;
   dom.qrScannerVideo.pause();
   dom.qrScannerVideo.srcObject = null;
   qrScanCanvas = null;
@@ -688,55 +739,62 @@ function releaseQrCamera() {
 }
 
 function closeQrScanner() {
-  releaseQrCamera();
+  releaseQrCapture();
   if (dom.qrScannerDialog.open) dom.qrScannerDialog.close();
 }
 
-function showQrCameraError(message: string) {
-  releaseQrCamera();
+function showQrCaptureError(message: string, retryable = true) {
+  releaseQrCapture();
+  dom.qrScannerSourceOptions.hidden = false;
+  dom.qrScannerPreview.hidden = true;
   dom.qrScannerStatus.textContent = message;
-  dom.qrScannerRetry.hidden = false;
+  dom.qrScannerStatus.hidden = false;
+  dom.qrScannerSourceBack.hidden = true;
+  dom.qrScannerRetry.hidden = !retryable;
+  dom.qrScannerRetry.textContent = "重试摄像头";
+}
+
+function returnToQrSourceOptions() {
+  releaseQrCapture();
+  dom.qrScannerSourceOptions.hidden = false;
+  dom.qrScannerPreview.hidden = true;
+  dom.qrScannerStatus.hidden = true;
+  dom.qrScannerStatus.textContent = "";
+  dom.qrScannerSourceBack.hidden = true;
+  dom.qrScannerRetry.hidden = true;
 }
 
 function scanQrVideoFrame(now: number) {
   qrScanFrame = null;
-  if (!dom.qrScannerDialog.open || !qrCameraStream) return;
+  if (!dom.qrScannerDialog.open || !qrCaptureStream) return;
   qrScanFrame = requestAnimationFrame(scanQrVideoFrame);
   if (now - qrLastScanAt < 180 || dom.qrScannerVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
   qrLastScanAt = now;
 
   try {
     const video = dom.qrScannerVideo;
-    const maxSide = 1280;
-    const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
-    const width = Math.max(1, Math.round(video.videoWidth * scale));
-    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    const maxSide = 1920;
     qrScanCanvas ??= document.createElement("canvas");
-    if (qrScanCanvas.width !== width || qrScanCanvas.height !== height) {
-      qrScanCanvas.width = width;
-      qrScanCanvas.height = height;
-    }
-    const context = qrScanCanvas.getContext("2d", { willReadFrequently: true });
-    if (!context) throw new Error("无法创建二维码扫描画布");
-    context.drawImage(video, 0, 0, width, height);
-    const image = context.getImageData(0, 0, width, height);
-    const result = jsQR(image.data, width, height, { inversionAttempts: "attemptBoth" });
-    const content = result?.data.trim();
+    const content = decodeQrFromImage(video, video.videoWidth, video.videoHeight, qrScanCanvas, maxSide)?.trim();
     if (!content) return;
 
     closeQrScanner();
     if (replaceInputContent(content)) showToast("已读取二维码内容");
-    else showToast("二维码内容为空", true);
   } catch {
-    showQrCameraError("读取相机画面失败，请关闭后重试。");
+    showQrCaptureError("读取相机画面失败，请重试。");
   }
 }
 
-async function requestQrCamera() {
-  releaseQrCamera();
+async function startQrCamera() {
+  releaseQrCapture();
+  dom.qrScannerSourceOptions.hidden = true;
+  dom.qrScannerPreview.hidden = true;
+  dom.qrScannerStatus.hidden = false;
   dom.qrScannerStatus.textContent = "正在启动相机…";
+  dom.qrScannerSourceBack.hidden = true;
   dom.qrScannerRetry.hidden = true;
   try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("camera_capture_unavailable");
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
@@ -749,30 +807,87 @@ async function requestQrCamera() {
       stream.getTracks().forEach(track => track.stop());
       return;
     }
-    qrCameraStream = stream;
+    qrCaptureStream = stream;
+    stream.getVideoTracks().forEach(track => track.addEventListener("ended", () => {
+      if (qrCaptureStream !== stream || !dom.qrScannerDialog.open) return;
+      showQrCaptureError("相机已停止。", false);
+    }, { once: true }));
     dom.qrScannerVideo.srcObject = stream;
     await dom.qrScannerVideo.play();
     if (!dom.qrScannerDialog.open) {
-      releaseQrCamera();
+      releaseQrCapture();
       return;
     }
-    dom.qrScannerStatus.textContent = "请将二维码放入取景框";
+    dom.qrScannerPreview.hidden = false;
+    dom.qrScannerStatus.textContent = "请将二维码放入取景框。";
+    dom.qrScannerSourceBack.hidden = false;
     qrScanFrame = requestAnimationFrame(scanQrVideoFrame);
   } catch (error) {
-    if (dom.qrScannerDialog.open) showQrCameraError(qrCameraErrorMessage(error));
-    else releaseQrCamera();
+    if (!dom.qrScannerDialog.open) {
+      releaseQrCapture();
+      return;
+    }
+    const message = error instanceof Error && error.message.endsWith("_unavailable")
+      ? "当前运行环境不支持摄像头扫码。"
+      : qrCameraErrorMessage(error);
+    showQrCaptureError(message, !message.includes("不支持"));
+  }
+}
+
+async function scanFullScreens() {
+  if (running || !dom.qrScannerDialog.open) return;
+  dom.qrScannerSourceOptions.hidden = true;
+  dom.qrScannerPreview.hidden = true;
+  dom.qrScannerStatus.hidden = false;
+  dom.qrScannerStatus.textContent = "正在截取所有屏幕…";
+  dom.qrScannerSourceBack.hidden = true;
+  dom.qrScannerRetry.hidden = true;
+
+  try {
+    const screenshots = await invoke<string[]>("capture_full_screens");
+    let content: string | null = null;
+    for (const encoded of screenshots) {
+      const binary = atob(encoded);
+      const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+      try {
+        content = decodeQrFromImage(
+          bitmap,
+          bitmap.width,
+          bitmap.height,
+          document.createElement("canvas"),
+          4096,
+        )?.trim() ?? null;
+      } finally {
+        bitmap.close();
+      }
+      if (content) break;
+    }
+
+    if (!content) {
+      dom.qrScannerSourceOptions.hidden = false;
+      dom.qrScannerStatus.textContent = "全屏中未识别到二维码，可以重试或选择其他来源。";
+      return;
+    }
+    closeQrScanner();
+    if (replaceInputContent(content)) showToast("已从全屏读取二维码内容");
+  } catch (error) {
+    dom.qrScannerSourceOptions.hidden = false;
+    dom.qrScannerStatus.textContent = failureFrom(error).message || "全屏扫描失败，请重试。";
   }
 }
 
 async function importQrCode() {
   if (running || dom.qrScannerDialog.open) return;
-  if (!navigator.mediaDevices?.getUserMedia) {
-    showToast("当前运行环境不支持相机扫码", true);
-    return;
-  }
+  returnToQrSourceOptions();
   dom.qrScannerRetry.hidden = true;
   dom.qrScannerDialog.showModal();
-  void requestQrCamera();
+}
+
+function handleQrImageSelection() {
+  const file = dom.qrImageInput.files?.[0];
+  dom.qrImageInput.value = "";
+  if (file) void importQrImage(file);
 }
 
 function resolveMaxRedirects(): number {
@@ -1721,8 +1836,13 @@ function bindEvents() {
   dom.importQrButton.addEventListener("click", () => void importQrCode());
   dom.qrScannerClose.addEventListener("click", closeQrScanner);
   dom.qrScannerCancel.addEventListener("click", closeQrScanner);
-  dom.qrScannerRetry.addEventListener("click", () => void requestQrCamera());
-  dom.qrScannerDialog.addEventListener("close", releaseQrCamera);
+  dom.qrScanScreenButton.addEventListener("click", () => void scanFullScreens());
+  dom.qrSelectImageButton.addEventListener("click", () => dom.qrImageInput.click());
+  dom.qrScanCameraButton.addEventListener("click", () => void startQrCamera());
+  dom.qrImageInput.addEventListener("change", handleQrImageSelection);
+  dom.qrScannerRetry.addEventListener("click", () => void startQrCamera());
+  dom.qrScannerSourceBack.addEventListener("click", returnToQrSourceOptions);
+  dom.qrScannerDialog.addEventListener("close", releaseQrCapture);
   dom.qrScannerDialog.addEventListener("click", event => {
     if (event.target === dom.qrScannerDialog) closeQrScanner();
   });
