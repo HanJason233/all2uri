@@ -558,11 +558,22 @@ label.settings-row {
 
 .processing-progress {
   flex: 0 0 auto;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .processing-progress .progress-track {
   margin-bottom: 0;
+}
+
+.log-progress {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.log-progress .progress-copy {
+  min-height: 16px;
+  margin-bottom: 6px;
+  font-size: 11px;
 }
 
 .number-input {

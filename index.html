@@ -150,12 +150,6 @@
               </section>
             </div>
 
-            <div class="processing-progress">
-              <div class="progress-copy" id="progress-copy" aria-live="polite">准备就绪</div>
-              <div class="progress-track" aria-hidden="true">
-                <span id="progress-bar"></span>
-              </div>
-            </div>
           </section>
 
           <div class="panel-resizer" data-resizer="1" role="separator" aria-orientation="vertical" aria-label="调整处理和输出版块宽度" title="拖动调整宽度，双击恢复均分" tabindex="0"></div>
@@ -228,6 +222,12 @@
           <button class="text-button" id="clear-log-button" type="button">清空日志</button>
         </div>
         <div class="log-list" id="log-list" role="log" aria-live="polite"></div>
+        <div class="processing-progress log-progress">
+          <div class="progress-copy" id="progress-copy" aria-live="polite">准备就绪</div>
+          <div class="progress-track" aria-hidden="true">
+            <span id="progress-bar"></span>
+          </div>
+        </div>
       </section>
     </div>
 
