@@ -68,17 +68,11 @@
             </div>
 
             <div class="settings-content" role="group" aria-label="应用设置">
-              <section class="settings-card" aria-labelledby="settings-request-title">
-                <div class="settings-card-heading">
-                  <span class="settings-card-index" aria-hidden="true">01</span>
-                  <div>
-                    <h3 id="settings-request-title">订阅请求</h3>
-                    <p>设置订阅服务识别的客户端类型。</p>
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <label class="field-label" for="user-agent-select">User-Agent</label>
-                  <select id="user-agent-select" class="select-input settings-control">
+              <section class="settings-section" aria-labelledby="settings-request-title">
+                <h3 id="settings-request-title">订阅请求</h3>
+                <label class="settings-row">
+                  <span>User-Agent</span>
+                  <select id="user-agent-select" class="settings-control settings-select">
                     <option value="auto">自动识别（推荐）</option>
                     <option value="nekobox">NekoBox / Clash Meta</option>
                     <option value="sing-box">sing-box</option>
@@ -86,124 +80,82 @@
                     <option value="v2rayn">v2rayN</option>
                     <option value="custom">自定义</option>
                   </select>
-                  <input
-                    id="custom-user-agent"
-                    class="text-input settings-control custom-user-agent"
-                    type="text"
-                    maxlength="512"
-                    spellcheck="false"
-                    autocomplete="off"
-                    placeholder="例如：MyClient/1.0"
-                    hidden
-                  />
-                  <span class="settings-help">自动识别失败时会尝试常见客户端标识。</span>
-                </div>
+                </label>
+                <input
+                  id="custom-user-agent"
+                  class="settings-control settings-text"
+                  type="text"
+                  maxlength="512"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="例如：MyClient/1.0"
+                  hidden
+                />
               </section>
 
-              <section class="settings-card" aria-labelledby="settings-limits-title">
-                <div class="settings-card-heading">
-                  <span class="settings-card-index" aria-hidden="true">02</span>
-                  <div>
-                    <h3 id="settings-limits-title">请求限制</h3>
-                    <p>限制下载体积、跳转次数和同时请求数。</p>
-                  </div>
-                </div>
-                <div class="settings-limits-grid">
-                  <div class="settings-field">
-                    <label class="field-label" for="max-response-mib">响应上限（MiB）</label>
-                    <input id="max-response-mib" class="text-input number-input settings-control" type="number" min="1" max="64" step="1" value="2" inputmode="numeric" />
-                    <span class="settings-help">1–64 MiB</span>
-                  </div>
-                  <div class="settings-field">
-                    <label class="field-label" for="max-redirects">最大重定向</label>
-                    <input id="max-redirects" class="text-input number-input settings-control" type="number" min="0" max="50" step="1" value="10" inputmode="numeric" />
-                    <span class="settings-help">0–50 次</span>
-                  </div>
-                  <div class="settings-field">
-                    <label class="field-label" for="fetch-concurrency">并发请求</label>
-                    <input id="fetch-concurrency" class="text-input number-input settings-control" type="number" min="1" max="20" step="1" value="3" inputmode="numeric" aria-describedby="fetch-concurrency-note" />
-                    <span class="settings-help" id="fetch-concurrency-note">1–20 个来源</span>
+              <section class="settings-section" aria-labelledby="settings-limits-title">
+                <h3 id="settings-limits-title">请求限制</h3>
+                <label class="settings-row">
+                  <span>响应上限</span>
+                  <span class="settings-value">
+                    <input id="max-response-mib" class="settings-control settings-number" type="number" min="1" max="64" step="1" value="2" inputmode="numeric" />
+                    <span>MiB</span>
+                  </span>
+                </label>
+                <label class="settings-row">
+                  <span>最大重定向</span>
+                  <span class="settings-value">
+                    <input id="max-redirects" class="settings-control settings-number" type="number" min="0" max="50" step="1" value="10" inputmode="numeric" />
+                    <span>次</span>
+                  </span>
+                </label>
+                <label class="settings-row">
+                  <span>并发请求</span>
+                  <span class="settings-value">
+                    <input id="fetch-concurrency" class="settings-control settings-number" type="number" min="1" max="20" step="1" value="3" inputmode="numeric" />
+                    <span>个</span>
+                  </span>
+                </label>
+              </section>
+
+              <section class="settings-section" aria-labelledby="settings-security-title">
+                <h3 id="settings-security-title">连接</h3>
+                <label class="settings-row">
+                  <span>允许本机及局域网</span>
+                  <input class="settings-checkbox" id="allow-local-network" type="checkbox" />
+                </label>
+                <label class="settings-row">
+                  <span>跳过证书验证</span>
+                  <input class="settings-checkbox" id="skip-certificate-verification" type="checkbox" />
+                </label>
+                <p class="settings-warning" id="skip-certificate-note" hidden>证书校验已关闭，请确认订阅源可信。</p>
+              </section>
+
+              <section class="settings-section" aria-labelledby="settings-output-title">
+                <h3 id="settings-output-title">输出</h3>
+                <label class="settings-row">
+                  <span>自动去重</span>
+                  <input class="settings-checkbox" id="deduplicate-output" type="checkbox" checked />
+                </label>
+                <label class="settings-row">
+                  <span>包含有损结果</span>
+                  <input class="settings-checkbox" id="include-lossy-output" type="checkbox" />
+                </label>
+              </section>
+
+              <section class="settings-section" aria-labelledby="settings-region-lookup-title">
+                <h3 id="settings-region-lookup-title">地区识别</h3>
+                <div class="region-lookup-methods" id="region-lookup-methods" role="group" aria-label="地区查询方式"></div>
+                <div class="settings-row settings-database-row">
+                  <span>GeoIP 数据文件</span>
+                  <div class="settings-inline-actions">
+                    <span class="region-database-name" id="geoip-database-name">内置 geoip.dat</span>
+                    <button class="settings-button" id="choose-geoip-database" type="button">选择</button>
+                    <button class="settings-button" id="clear-geoip-database" type="button" disabled>恢复</button>
                   </div>
                 </div>
               </section>
-
-              <div class="settings-card-pair">
-                <section class="settings-card settings-security" aria-labelledby="settings-security-title">
-                  <div class="settings-card-heading">
-                    <span class="settings-card-index" aria-hidden="true">03</span>
-                    <div>
-                      <h3 id="settings-security-title">连接安全</h3>
-                      <p>只对可信的订阅源调整这些权限。</p>
-                    </div>
-                  </div>
-                  <div class="settings-switch-list">
-                    <button class="toggle-button settings-switch" id="allow-local-network" type="button" aria-pressed="false">
-                      <span class="settings-switch-copy">
-                        <strong>允许本机及局域网</strong>
-                        <span>访问本地部署的订阅服务</span>
-                      </span>
-                      <span class="switch-track" aria-hidden="true"></span>
-                    </button>
-                    <button class="toggle-button settings-switch" id="skip-certificate-verification" type="button" aria-pressed="false">
-                      <span class="settings-switch-copy">
-                        <strong>跳过证书验证</strong>
-                        <span>忽略 HTTPS 证书错误</span>
-                      </span>
-                      <span class="switch-track" aria-hidden="true"></span>
-                    </button>
-                    <p class="option-note security-note" id="skip-certificate-note" hidden>证书校验已关闭，请确认订阅源可信。</p>
-                  </div>
-                </section>
-
-                <section class="settings-card settings-output" aria-labelledby="settings-output-title">
-                  <div class="settings-card-heading">
-                    <span class="settings-card-index" aria-hidden="true">04</span>
-                    <div>
-                      <h3 id="settings-output-title">输出规则</h3>
-                      <p>控制生成结果的完整度与重复项。</p>
-                    </div>
-                  </div>
-                  <div class="settings-switch-list">
-                    <button class="toggle-button settings-switch" id="deduplicate-output" type="button" aria-pressed="true">
-                      <span class="settings-switch-copy">
-                        <strong>自动去重</strong>
-                        <span>合并重复的节点结果</span>
-                      </span>
-                      <span class="switch-track" aria-hidden="true"></span>
-                    </button>
-                    <button class="toggle-button settings-switch" id="include-lossy-output" type="button" aria-pressed="false">
-                      <span class="settings-switch-copy">
-                        <strong>包含有损结果</strong>
-                        <span>输出无法完整表达的节点</span>
-                      </span>
-                      <span class="switch-track" aria-hidden="true"></span>
-                    </button>
-                  </div>
-                </section>
-              </div>
             </div>
-
-            <section class="settings-card settings-region-lookup" aria-labelledby="settings-region-lookup-title">
-              <div class="settings-card-heading">
-                <span class="settings-card-index" aria-hidden="true">05</span>
-                <div>
-                  <h3 id="settings-region-lookup-title">地区组查询</h3>
-                  <p>按优先级依次尝试查询方式，识别到地区后停止。</p>
-                </div>
-              </div>
-              <div class="region-lookup-methods" id="region-lookup-methods" role="group" aria-label="地区查询方式"></div>
-              <div class="region-database-field">
-                <div class="region-database-copy">
-                  <strong>本地 GeoIP 数据库</strong>
-                  <span>安装包内置 Xray / V2Ray geoip.dat；也可选择本地文件覆盖。</span>
-                </div>
-                <span class="region-database-name" id="geoip-database-name">内置 geoip.dat</span>
-                <div class="region-database-actions">
-                  <button class="secondary-button" id="choose-geoip-database" type="button">选择文件</button>
-                  <button class="secondary-button" id="clear-geoip-database" type="button" disabled>恢复内置</button>
-                </div>
-              </div>
-            </section>
 
             <div class="processing-progress">
               <div class="progress-copy" id="progress-copy" aria-live="polite">准备就绪</div>

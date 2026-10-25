@@ -237,33 +237,31 @@ function renderRegionLookupSettings() {
     const row = document.createElement("div");
     row.className = "region-lookup-method-row";
 
-    const toggle = document.createElement("button");
-    toggle.className = "toggle-button settings-switch region-lookup-method-toggle";
-    toggle.type = "button";
-    toggle.setAttribute("aria-pressed", String(priority >= 0));
-    toggle.setAttribute("aria-label", `${priority >= 0 ? "停用" : "启用"}${option.title}`);
-    const copy = document.createElement("span");
-    copy.className = "settings-switch-copy";
-    const title = document.createElement("strong");
-    title.textContent = option.title;
-    const description = document.createElement("span");
-    description.textContent = option.description;
-    const track = document.createElement("span");
-    track.className = "switch-track";
-    track.setAttribute("aria-hidden", "true");
-    copy.append(title, description);
-    toggle.append(copy, track);
-    toggle.addEventListener("click", () => {
-      updateRegionLookupMethods(priority >= 0
-        ? regionLookupMethods.filter(method => method !== option.value)
-        : [...regionLookupMethods, option.value]);
+    const label = document.createElement("label");
+    label.className = "region-lookup-method-label";
+    label.title = option.description;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "settings-checkbox";
+    checkbox.checked = priority >= 0;
+    checkbox.setAttribute("aria-label", option.title);
+    checkbox.addEventListener("change", () => {
+      updateRegionLookupMethods(checkbox.checked
+        ? [...regionLookupMethods, option.value]
+        : regionLookupMethods.filter(method => method !== option.value));
     });
+
+    const title = document.createElement("span");
+    title.textContent = option.title;
+    label.append(checkbox, title);
 
     const priorityLabel = document.createElement("span");
     priorityLabel.className = "region-lookup-priority";
-    priorityLabel.textContent = priority >= 0 ? `优先级 ${priority + 1}` : "已停用";
+    priorityLabel.textContent = priority >= 0 ? String(priority + 1) : "–";
+
     const moveUp = document.createElement("button");
-    moveUp.className = "region-lookup-order-button";
+    moveUp.className = "settings-link-button";
     moveUp.type = "button";
     moveUp.textContent = "↑";
     moveUp.disabled = priority <= 0;
@@ -276,7 +274,7 @@ function renderRegionLookupSettings() {
     });
 
     const moveDown = document.createElement("button");
-    moveDown.className = "region-lookup-order-button";
+    moveDown.className = "settings-link-button";
     moveDown.type = "button";
     moveDown.textContent = "↓";
     moveDown.disabled = priority < 0 || priority >= regionLookupMethods.length - 1;
@@ -291,7 +289,7 @@ function renderRegionLookupSettings() {
     const controls = document.createElement("div");
     controls.className = "region-lookup-order-controls";
     controls.append(priorityLabel, moveUp, moveDown);
-    row.append(toggle, controls);
+    row.append(label, controls);
     dom.regionLookupMethods.append(row);
   }
 
@@ -354,11 +352,11 @@ const dom = {
   geoIpDatabaseName: getElement<HTMLSpanElement>("geoip-database-name"),
   chooseGeoIpDatabaseButton: getElement<HTMLButtonElement>("choose-geoip-database"),
   clearGeoIpDatabaseButton: getElement<HTMLButtonElement>("clear-geoip-database"),
-  deduplicateOutput: getElement<HTMLButtonElement>("deduplicate-output"),
-  includeLossyOutput: getElement<HTMLButtonElement>("include-lossy-output"),
-  skipCertificateVerification: getElement<HTMLButtonElement>("skip-certificate-verification"),
+  deduplicateOutput: getElement<HTMLInputElement>("deduplicate-output"),
+  includeLossyOutput: getElement<HTMLInputElement>("include-lossy-output"),
+  skipCertificateVerification: getElement<HTMLInputElement>("skip-certificate-verification"),
   skipCertificateNote: getElement<HTMLParagraphElement>("skip-certificate-note"),
-  allowLocalNetwork: getElement<HTMLButtonElement>("allow-local-network"),
+  allowLocalNetwork: getElement<HTMLInputElement>("allow-local-network"),
   convertButton: getElement<HTMLButtonElement>("convert-button"),
   convertLabel: getElement<HTMLSpanElement>("convert-button").querySelector<HTMLSpanElement>(".button-label")!,
   progressCopy: getElement<HTMLDivElement>("progress-copy"),
@@ -739,36 +737,22 @@ function resolveFetchConcurrency(): number {
 }
 
 function shouldSkipCertificateVerification(): boolean {
-  return dom.skipCertificateVerification.getAttribute("aria-pressed") === "true";
+  return dom.skipCertificateVerification.checked;
 }
 
 function shouldAllowLocalNetwork(): boolean {
-  return dom.allowLocalNetwork.getAttribute("aria-pressed") === "true";
-}
-
-function toggleCertificateVerification() {
-  const skip = !shouldSkipCertificateVerification();
-  dom.skipCertificateVerification.setAttribute("aria-pressed", String(skip));
-  dom.skipCertificateNote.hidden = !skip;
+  return dom.allowLocalNetwork.checked;
 }
 
 function shouldDeduplicateOutput(): boolean {
-  return dom.deduplicateOutput.getAttribute("aria-pressed") !== "false";
+  return dom.deduplicateOutput.checked;
 }
 
 function shouldIncludeLossyOutput(): boolean {
-  return dom.includeLossyOutput.getAttribute("aria-pressed") === "true";
+  return dom.includeLossyOutput.checked;
 }
 
-function toggleOutputDeduplication() {
-  const deduplicate = !shouldDeduplicateOutput();
-  dom.deduplicateOutput.setAttribute("aria-pressed", String(deduplicate));
-  if (!running && activeSourceDocuments.length > 0) void refreshConversion();
-}
-
-function toggleLossyOutput() {
-  const includeLossy = !shouldIncludeLossyOutput();
-  dom.includeLossyOutput.setAttribute("aria-pressed", String(includeLossy));
+function refreshForOutputSettingChange() {
   if (!running && activeSourceDocuments.length > 0) void refreshConversion();
 }
 
@@ -789,6 +773,7 @@ function setBusy(busy: boolean) {
   dom.maxResponseMib.disabled = busy;
   dom.maxRedirects.disabled = busy;
   dom.deduplicateOutput.disabled = busy;
+  dom.includeLossyOutput.disabled = busy;
   dom.skipCertificateVerification.disabled = busy;
   dom.allowLocalNetwork.disabled = busy;
   dom.convertButton.classList.toggle("busy", busy);
@@ -1780,14 +1765,11 @@ function bindEvents() {
     if (!dom.customUserAgent.hidden) dom.customUserAgent.focus();
   });
 
-  dom.skipCertificateVerification.addEventListener("click", toggleCertificateVerification);
-
-  dom.deduplicateOutput.addEventListener("click", toggleOutputDeduplication);
-  dom.includeLossyOutput.addEventListener("click", toggleLossyOutput);
-  dom.allowLocalNetwork.addEventListener("click", () => {
-    const enabled = !shouldAllowLocalNetwork();
-    dom.allowLocalNetwork.setAttribute("aria-pressed", String(enabled));
+  dom.skipCertificateVerification.addEventListener("change", () => {
+    dom.skipCertificateNote.hidden = !shouldSkipCertificateVerification();
   });
+  dom.deduplicateOutput.addEventListener("change", refreshForOutputSettingChange);
+  dom.includeLossyOutput.addEventListener("change", refreshForOutputSettingChange);
 
   for (const view of detailViews) {
     view.button.addEventListener("click", () => toggleDetail(view));
