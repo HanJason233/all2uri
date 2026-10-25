@@ -70,10 +70,18 @@ interface SourceResult {
 
 const MIN_FETCH_CONCURRENCY = 1;
 const MAX_FETCH_CONCURRENCY = 20;
+const MAX_FETCH_CONCURRENCY_PERCENT = 100;
 const MIN_RESPONSE_MIB = 1;
 const MAX_RESPONSE_MIB = 64;
 const MAX_REDIRECTS = 50;
 const MAX_BATCH_INPUT_BYTES = 64 * 1024 * 1024;
+type FetchConcurrencyMode = "fixed" | "percent";
+
+interface FetchConcurrencySetting {
+  mode: FetchConcurrencyMode;
+  value: number;
+}
+
 const OUTPUT_PROTOCOLS: Array<{ value: ProxyProtocol; label: string }> = [
   { value: "vless", label: "VLESS" },
   { value: "vmess", label: "VMess" },
@@ -309,6 +317,7 @@ const dom = {
   userAgentSelect: getElement<HTMLSelectElement>("user-agent-select"),
   customUserAgent: getElement<HTMLInputElement>("custom-user-agent"),
   fetchConcurrency: getElement<HTMLInputElement>("fetch-concurrency"),
+  fetchConcurrencyMode: getElement<HTMLSelectElement>("fetch-concurrency-mode"),
   maxResponseMib: getElement<HTMLInputElement>("max-response-mib"),
   maxRedirects: getElement<HTMLInputElement>("max-redirects"),
   regionLookupMethods: getElement<HTMLDivElement>("region-lookup-methods"),
@@ -689,14 +698,43 @@ function resolveRequestLimits(): { maxResponseBytes: number; maxRedirects: numbe
   return { maxResponseBytes: maxResponseMib * 1024 * 1024, maxRedirects };
 }
 
-function resolveFetchConcurrency(): number {
-  const concurrency = dom.fetchConcurrency.valueAsNumber;
-  if (!Number.isInteger(concurrency) || concurrency < MIN_FETCH_CONCURRENCY || concurrency > MAX_FETCH_CONCURRENCY) {
-    setValidation(`并发数量必须是 ${MIN_FETCH_CONCURRENCY} 到 ${MAX_FETCH_CONCURRENCY} 之间的整数。`);
+function resolveFetchConcurrencySetting(): FetchConcurrencySetting {
+  const mode: FetchConcurrencyMode = dom.fetchConcurrencyMode.value === "percent" ? "percent" : "fixed";
+  const value = dom.fetchConcurrency.valueAsNumber;
+  const max = mode === "percent" ? MAX_FETCH_CONCURRENCY_PERCENT : MAX_FETCH_CONCURRENCY;
+  if (!Number.isInteger(value) || value < MIN_FETCH_CONCURRENCY || value > max) {
+    setValidation(mode === "percent"
+      ? `并发百分比必须是 ${MIN_FETCH_CONCURRENCY} 到 ${MAX_FETCH_CONCURRENCY_PERCENT} 之间的整数。`
+      : `并发数量必须是 ${MIN_FETCH_CONCURRENCY} 到 ${MAX_FETCH_CONCURRENCY} 之间的整数。`);
     dom.fetchConcurrency.focus();
-    throw new ConversionError("invalid_concurrency", "并发数量设置无效。");
+    throw new ConversionError("invalid_concurrency", "并发设置无效。");
   }
-  return concurrency;
+  return { mode, value };
+}
+
+function resolveFetchConcurrency(setting: FetchConcurrencySetting, totalRequests: number): number {
+  if (setting.mode === "fixed") return Math.min(setting.value, Math.max(1, totalRequests));
+  const requested = Math.max(1, Math.ceil(totalRequests * setting.value / 100));
+  return Math.min(requested, MAX_FETCH_CONCURRENCY);
+}
+
+function describeFetchConcurrency(setting: FetchConcurrencySetting, totalRequests: number, effective: number): string {
+  if (setting.mode === "percent") {
+    const requested = Math.max(1, Math.ceil(totalRequests * setting.value / 100));
+    const cap = requested > MAX_FETCH_CONCURRENCY ? `，超过并发上限 ${MAX_FETCH_CONCURRENCY}` : "";
+    return `${setting.value}% × ${totalRequests} = ${requested} 个${cap}，实际并发 ${effective} 个`;
+  }
+  return `固定 ${setting.value} 个，本次实际并发 ${effective} 个`;
+}
+
+function syncFetchConcurrencyInput() {
+  const percent = dom.fetchConcurrencyMode.value === "percent";
+  const max = percent ? MAX_FETCH_CONCURRENCY_PERCENT : MAX_FETCH_CONCURRENCY;
+  dom.fetchConcurrency.max = String(max);
+  if (dom.fetchConcurrency.valueAsNumber > max) dom.fetchConcurrency.value = String(max);
+  dom.fetchConcurrency.title = percent
+    ? `按本次远程请求数的百分比计算，实际并发最高 ${MAX_FETCH_CONCURRENCY} 个`
+    : `固定并发 ${MIN_FETCH_CONCURRENCY}–${MAX_FETCH_CONCURRENCY} 个`;
 }
 
 function shouldSkipCertificateVerification(): boolean {
@@ -733,6 +771,7 @@ function setBusy(busy: boolean) {
   dom.userAgentSelect.disabled = busy;
   dom.customUserAgent.disabled = busy;
   dom.fetchConcurrency.disabled = busy;
+  dom.fetchConcurrencyMode.disabled = busy;
   dom.maxResponseMib.disabled = busy;
   dom.maxRedirects.disabled = busy;
   dom.deduplicateOutput.disabled = busy;
@@ -789,7 +828,7 @@ function isOutputFilterActive(): boolean {
 function outputFilterSummaryText(): string {
   if (!isOutputFilterActive()) return "全部节点";
   const parts = [
-    outputFilter.protocols.length ? outputFilter.protocols.map(getProtocolLabel).join(" / ") : "全部类型",
+    outputFilter.protocols.length ? outputFilter.protocols.map(getProtocolLabel).join(" / ") : "全部协议",
     outputFilter.countries.length ? outputFilter.countries.map(countryNameForCode).join("、") : "全部地区",
   ];
   if (outputFilter.cloudflareEntry === "yes") parts.push("CF 入口");
@@ -826,8 +865,8 @@ function availableOutputRegionCodes(): string[] {
 
 function updateOutputFilterDialogSummaries() {
   dom.outputFilterProtocolSummary.textContent = draftFilterProtocols.length
-    ? `已选 ${draftFilterProtocols.length} 种`
-    : "全部类型";
+    ? `已选 ${draftFilterProtocols.length} 种协议`
+    : "全部协议";
   dom.outputFilterRegionSummary.textContent = draftFilterCountries.length
     ? `已选 ${draftFilterCountries.length} 个地区`
     : "全部地区";
@@ -846,7 +885,7 @@ function renderOutputFilterDialogOptions() {
     checkbox.type = "checkbox";
     checkbox.value = item.value;
     checkbox.checked = draftFilterProtocols.includes(item.value);
-    checkbox.setAttribute("aria-label", `节点类型：${item.label}`);
+    checkbox.setAttribute("aria-label", `协议类型：${item.label}`);
     const optionName = document.createElement("span");
     optionName.textContent = item.label;
     checkbox.addEventListener("change", () => {
@@ -1229,11 +1268,13 @@ async function startConversion() {
 
   let userAgent: string | null = null;
   let fetchConcurrency = MIN_FETCH_CONCURRENCY;
+  let fetchConcurrencySetting: FetchConcurrencySetting | null = null;
   let requestLimits = { maxResponseBytes: MIN_RESPONSE_MIB * 1024 * 1024, maxRedirects: 0 };
   if (input.urls.length > 0) {
     try {
       userAgent = resolveUserAgent();
-      fetchConcurrency = resolveFetchConcurrency();
+      fetchConcurrencySetting = resolveFetchConcurrencySetting();
+      fetchConcurrency = resolveFetchConcurrency(fetchConcurrencySetting, input.urls.length);
       requestLimits = resolveRequestLimits();
     } catch (error) {
       showToast(failureFrom(error).message, true);
@@ -1301,7 +1342,6 @@ async function startConversion() {
       Math.max(1, Math.floor(remainingBatchBytes / effectiveResponseLimit)),
     );
   }
-
   sourceResults = [];
   if (hasLocal) {
     sourceResults.push({
@@ -1326,6 +1366,9 @@ async function startConversion() {
 
   dom.logList.replaceChildren();
   appendLog(`开始处理：${totalSources} 个来源`);
+  if (canFetchRemote && input.urls.length > 0 && fetchConcurrencySetting) {
+    appendLog(`远程请求并发：${describeFetchConcurrency(fetchConcurrencySetting, input.urls.length, fetchConcurrency)}`);
+  }
   if (!hasLocal && (input.fragmentsTruncated || input.uriLimitReached || input.decodedTooLarge > 0 || input.depthLimited)) {
     appendLog("输入展开或 URI 提取触及资源上限，部分内容已跳过。", true);
   }
@@ -1536,6 +1579,11 @@ function bindEvents() {
   });
   dom.clearLogButton.addEventListener("click", clearLog);
   dom.importFileButton.addEventListener("click", () => void importFile());
+  syncFetchConcurrencyInput();
+  dom.fetchConcurrencyMode.addEventListener("change", () => {
+    syncFetchConcurrencyInput();
+    if (!dom.validation.hidden) setValidation();
+  });
   dom.outputFilterButton.addEventListener("click", openOutputFilterDialog);
   dom.outputFilterDialogClose.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));

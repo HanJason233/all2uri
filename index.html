@@ -113,7 +113,10 @@
                   <span>并发请求</span>
                   <span class="settings-value">
                     <input id="fetch-concurrency" class="settings-control settings-number" type="number" min="1" max="20" step="1" value="3" inputmode="numeric" />
-                    <span>个</span>
+                    <select id="fetch-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="并发单位">
+                      <option value="fixed">个</option>
+                      <option value="percent">%</option>
+                    </select>
                   </span>
                 </label>
               </section>
@@ -239,15 +242,15 @@
         <header class="output-rule-dialog-header">
           <div>
             <h2 id="output-filter-dialog-title">设置筛选条件</h2>
-            <p>节点类型、地区和 CF 入口同时生效；同类多选按“或”匹配。不选类型或地区表示全部。</p>
+            <p>协议类型、地区和 CF 入口同时生效；同类多选按“或”匹配。不选协议或地区表示全部。</p>
           </div>
           <button class="output-rule-dialog-close" id="output-filter-dialog-close" type="button" aria-label="关闭筛选设置">×</button>
         </header>
         <div class="output-rule-dialog-body">
           <section class="output-rule-section" aria-labelledby="output-filter-protocol-title">
             <div class="output-rule-section-heading">
-              <h3 id="output-filter-protocol-title">节点类型</h3>
-              <span id="output-filter-protocol-summary">全部类型</span>
+              <h3 id="output-filter-protocol-title">协议类型</h3>
+              <span id="output-filter-protocol-summary">全部协议</span>
             </div>
             <div class="output-rule-options" id="output-filter-protocol-options"></div>
           </section>
