@@ -43,13 +43,10 @@ interface CategorizedOutput {
   isCloudflare: boolean | null;
 }
 
-interface OutputGroup {
-  id: string;
-  name: string;
-  // 组内按任一已选节点类型匹配；不同分组独立计算，允许重复命中。
-  matchProtocols: ProxyProtocol[];
-  matchCountries: string[];
-  matchCloudflare: boolean;
+interface OutputFilter {
+  protocols: ProxyProtocol[];
+  countries: string[];
+  cloudflare: boolean;
 }
 
 type SourceKind = "local" | "remote";
@@ -91,14 +88,9 @@ const OUTPUT_PROTOCOLS: Array<{ value: ProxyProtocol; label: string }> = [
   { value: "naive", label: "NaiveProxy" },
   { value: "masque", label: "MASQUE" },
 ];
-const OUTPUT_GROUPS_STORAGE_KEY = "all2uri.output-groups";
-const LEGACY_CATEGORY_RULES_STORAGE_KEY = "all2uri.output-category-rules";
+const OUTPUT_FILTER_STORAGE_KEY = "all2uri.output-filter";
 const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
-const DEFAULT_OUTPUT_GROUPS: OutputGroup[] = [
-  { id: "default-vless", name: "VLESS", matchProtocols: ["vless"], matchCountries: [], matchCloudflare: false },
-  { id: "default-vmess", name: "VMess", matchProtocols: ["vmess"], matchCountries: [], matchCloudflare: false },
-];
 const USER_AGENT_PRESETS: Record<string, string> = {
   nekobox: "NekoBox/Android/1.4.2 (Prefer ClashMeta Format)",
   "sing-box": "sing-box/1.15.0",
@@ -114,12 +106,6 @@ class ConversionError extends Error {
     super(message);
     this.name = "ConversionError";
   }
-}
-
-function createOutputGroupId(): string {
-  return typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function getProtocolLabel(protocol: ProxyProtocol): string {
@@ -153,60 +139,31 @@ function loadGeoIpDatabasePath(): string {
   }
 }
 
-function loadOutputGroups(): OutputGroup[] {
+function loadOutputFilter(): OutputFilter {
+  const empty = (): OutputFilter => ({ protocols: [], countries: [], cloudflare: false });
   try {
-    const storedGroups = window.localStorage.getItem(OUTPUT_GROUPS_STORAGE_KEY);
-    if (storedGroups !== null) {
-      const parsed: unknown = JSON.parse(storedGroups);
-      if (!Array.isArray(parsed)) return DEFAULT_OUTPUT_GROUPS.map(group => ({ ...group }));
-      const groups: OutputGroup[] = [];
-      for (const item of parsed) {
-        if (typeof item !== "object" || item === null) continue;
-        const candidate = item as Partial<OutputGroup> & { matchProtocol?: unknown };
-        const storedProtocols = Array.isArray(candidate.matchProtocols)
-          ? candidate.matchProtocols
-          : [candidate.matchProtocol];
-        const matchProtocols = [...new Set(storedProtocols.filter(isProxyProtocol))];
-        const matchCountries = Array.isArray(candidate.matchCountries)
-          ? [...new Set(candidate.matchCountries.map(normalizeRegionCode).filter((code): code is string => code !== null))]
-          : [];
-        groups.push({
-          id: typeof candidate.id === "string" && candidate.id ? candidate.id : createOutputGroupId(),
-          name: typeof candidate.name === "string" && candidate.name.trim()
-            ? candidate.name.trim().slice(0, 60)
-            : matchProtocols.length ? getProtocolLabel(matchProtocols[0]) : "新分组",
-          matchProtocols,
-          matchCountries,
-          matchCloudflare: candidate.matchCloudflare === true,
-        });
-      }
-      return groups;
-    }
-
-    const legacyRules = window.localStorage.getItem(LEGACY_CATEGORY_RULES_STORAGE_KEY);
-    if (legacyRules !== null) {
-      const parsed: unknown = JSON.parse(legacyRules);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(isProxyProtocol).map((protocol, index) => ({
-          id: `migrated-${index}-${protocol}`,
-          name: getProtocolLabel(protocol),
-          matchProtocols: [protocol],
-          matchCountries: [],
-          matchCloudflare: false,
-        }));
-      }
-    }
+    const stored = window.localStorage.getItem(OUTPUT_FILTER_STORAGE_KEY);
+    if (stored === null) return empty();
+    const parsed: unknown = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null) return empty();
+    const candidate = parsed as Partial<OutputFilter>;
+    const protocols = Array.isArray(candidate.protocols)
+      ? [...new Set(candidate.protocols.filter(isProxyProtocol))]
+      : [];
+    const countries = Array.isArray(candidate.countries)
+      ? [...new Set(candidate.countries.map(normalizeRegionCode).filter((code): code is string => code !== null))]
+      : [];
+    return { protocols, countries, cloudflare: candidate.cloudflare === true };
   } catch {
-    return DEFAULT_OUTPUT_GROUPS.map(group => ({ ...group }));
+    return empty();
   }
-  return DEFAULT_OUTPUT_GROUPS.map(group => ({ ...group }));
 }
 
-function saveOutputGroups() {
+function saveOutputFilter() {
   try {
-    window.localStorage.setItem(OUTPUT_GROUPS_STORAGE_KEY, JSON.stringify(outputGroups));
+    window.localStorage.setItem(OUTPUT_FILTER_STORAGE_KEY, JSON.stringify(outputFilter));
   } catch {
-    // 分组仍可在当前会话中使用；存储不可用时忽略持久化错误。
+    // 筛选条件仍可在当前会话中使用；存储不可用时忽略持久化错误。
   }
 }
 
@@ -364,20 +321,21 @@ const dom = {
   processingStatus: getElement<HTMLSpanElement>("processing-status"),
   logList: getElement<HTMLDivElement>("log-list"),
   clearLogButton: getElement<HTMLButtonElement>("clear-log-button"),
-  outputGroupList: getElement<HTMLDivElement>("output-group-list"),
-  outputGroupEmpty: getElement<HTMLDivElement>("output-group-empty"),
-  addOutputGroupButton: getElement<HTMLButtonElement>("add-output-group"),
-  outputRuleDialog: getElement<HTMLDialogElement>("output-rule-dialog"),
-  outputRuleDialogTitle: getElement<HTMLHeadingElement>("output-rule-dialog-title"),
-  outputRuleDialogClose: getElement<HTMLButtonElement>("output-rule-dialog-close"),
-  outputRuleDialogCancel: getElement<HTMLButtonElement>("output-rule-dialog-cancel"),
-  outputRuleDialogSave: getElement<HTMLButtonElement>("output-rule-dialog-save"),
-  outputRuleProtocolOptions: getElement<HTMLDivElement>("output-rule-protocol-options"),
-  outputRuleProtocolSummary: getElement<HTMLSpanElement>("output-rule-protocol-summary"),
-  outputRuleRegionOptions: getElement<HTMLDivElement>("output-rule-region-options"),
-  outputRuleRegionSummary: getElement<HTMLSpanElement>("output-rule-region-summary"),
-  outputRuleCloudflareEntry: getElement<HTMLInputElement>("output-rule-cf-entry"),
-  outputRuleCloudflareSummary: getElement<HTMLSpanElement>("output-rule-cf-summary"),
+  outputFilterButton: getElement<HTMLButtonElement>("output-filter-button"),
+  outputFilterSummary: getElement<HTMLParagraphElement>("output-filter-summary"),
+  outputFilterCount: getElement<HTMLSpanElement>("output-filter-count"),
+  outputFilterText: getElement<HTMLTextAreaElement>("output-filter-text"),
+  outputFilterEmpty: getElement<HTMLDivElement>("output-filter-empty"),
+  outputFilterDialog: getElement<HTMLDialogElement>("output-filter-dialog"),
+  outputFilterDialogClose: getElement<HTMLButtonElement>("output-filter-dialog-close"),
+  outputFilterDialogCancel: getElement<HTMLButtonElement>("output-filter-dialog-cancel"),
+  outputFilterDialogSave: getElement<HTMLButtonElement>("output-filter-dialog-save"),
+  outputFilterProtocolOptions: getElement<HTMLDivElement>("output-filter-protocol-options"),
+  outputFilterProtocolSummary: getElement<HTMLSpanElement>("output-filter-protocol-summary"),
+  outputFilterRegionOptions: getElement<HTMLDivElement>("output-filter-region-options"),
+  outputFilterRegionSummary: getElement<HTMLSpanElement>("output-filter-region-summary"),
+  outputFilterCloudflareEntry: getElement<HTMLInputElement>("output-filter-cf-entry"),
+  outputFilterCloudflareSummary: getElement<HTMLSpanElement>("output-filter-cf-summary"),
   outputOverview: getElement<HTMLSpanElement>("output-overview"),
   nodeCount: getElement<HTMLElement>("node-count"),
   sourceCount: getElement<HTMLElement>("source-count"),
@@ -423,17 +381,16 @@ let resizeState: ResizeState | null = null;
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
 let outputEntries: CategorizedOutput[] = [];
-let outputGroups: OutputGroup[] = loadOutputGroups();
+let outputFilter = loadOutputFilter();
 let regionLookupMethods = loadRegionLookupMethods();
 let geoIpDatabasePath = loadGeoIpDatabasePath();
 let regionLookupState: "idle" | "running" | "done" | "error" = "idle";
 let regionLookupRunId = 0;
 let cloudflareDetectionState: "idle" | "running" | "done" | "error" = "idle";
 let cloudflareDetectionRunId = 0;
-let activeOutputRuleGroupId: string | null = null;
-let draftMatchProtocols: ProxyProtocol[] = [];
-let draftMatchCountries: string[] = [];
-let draftMatchCloudflare = false;
+let draftFilterProtocols: ProxyProtocol[] = [];
+let draftFilterCountries: string[] = [];
+let draftFilterCloudflare = false;
 let duplicateCount = 0;
 let activeSourceDocuments: SourceDocument[] = [];
 let conversionAbort: AbortController | null = null;
@@ -803,33 +760,52 @@ function appendConversionDiagnostics(result: ConversionResult) {
   }
 }
 
-function getOutputGroupUris(group: OutputGroup): string[] {
-  return outputEntries.filter(entry => outputEntryMatchesGroup(entry, group)).map(entry => entry.uri);
+function outputEntryMatchesFilter(entry: CategorizedOutput): boolean {
+  if (outputFilter.protocols.length > 0 && !outputFilter.protocols.includes(entry.protocol)) return false;
+  if (outputFilter.countries.length > 0 && !outputFilter.countries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE)) return false;
+  return !outputFilter.cloudflare || entry.isCloudflare === true;
 }
 
-function outputEntryMatchesGroup(entry: CategorizedOutput, group: OutputGroup): boolean {
-  if (!group.matchProtocols.includes(entry.protocol)) return false;
-  if (group.matchCountries.length > 0 && !group.matchCountries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE)) return false;
-  return !group.matchCloudflare || entry.isCloudflare === true;
+function getFilteredOutputEntries(): CategorizedOutput[] {
+  return outputEntries.filter(outputEntryMatchesFilter);
 }
 
-function groupResultEmptyText(group: OutputGroup): string {
-  if (group.matchProtocols.length === 0) return "请至少选择一个节点类型";
-  if (group.matchCloudflare && cloudflareDetectionState === "running") return "正在检查服务器入口 IP，完成后显示 CF 节点";
-  if (group.matchCloudflare && cloudflareDetectionState === "error") return "CF 入口检测失败，请重新保存筛选规则重试";
-  if (group.matchCloudflare && cloudflareDetectionState === "idle" && outputEntries.length > 0) return "等待 CF 入口检测";
-  if (group.matchCloudflare && cloudflareDetectionState === "done" && outputEntries.some(entry => entry.isCloudflare === null)) return "部分服务器入口无法解析，未识别的节点不会匹配";
-  if (regionLookupState === "running") return "正在查询节点地区，完成后显示匹配结果";
-  if (running) return "正在处理订阅，完成后显示匹配结果";
-  if (group.matchCountries.length > 0 && regionLookupState === "error") return "地区查询失败，请检查网络或数据库设置";
-  if (outputUris.length > 0) return "当前规则没有匹配到节点";
+function getFilteredOutputUris(): string[] {
+  return getFilteredOutputEntries().map(entry => entry.uri);
+}
+
+function isOutputFilterActive(): boolean {
+  return outputFilter.protocols.length > 0 || outputFilter.countries.length > 0 || outputFilter.cloudflare;
+}
+
+function outputFilterSummaryText(): string {
+  if (!isOutputFilterActive()) return "全部节点";
+  const parts = [
+    outputFilter.protocols.length ? outputFilter.protocols.map(getProtocolLabel).join(" / ") : "全部类型",
+    outputFilter.countries.length ? outputFilter.countries.map(countryNameForCode).join("、") : "全部地区",
+  ];
+  if (outputFilter.cloudflare) parts.push("CF 入口");
+  return parts.join(" · ");
+}
+
+function filteredResultEmptyText(): string {
+  if (outputFilter.cloudflare && cloudflareDetectionState === "running") return "正在检查服务器入口 IP，完成后显示 CF 节点";
+  if (outputFilter.cloudflare && cloudflareDetectionState === "error") return "CF 入口检测失败，请重新应用筛选条件";
+  if (outputFilter.cloudflare && cloudflareDetectionState === "idle" && outputEntries.length > 0) return "等待 CF 入口检测";
+  if (outputFilter.cloudflare && cloudflareDetectionState === "done" && outputEntries.some(entry => entry.isCloudflare === null)) {
+    return "部分服务器入口无法解析，未识别的节点不会显示";
+  }
+  if (regionLookupState === "running") return "正在查询节点地区，完成后显示筛选结果";
+  if (running) return "正在处理订阅，完成后显示筛选结果";
+  if (outputFilter.countries.length > 0 && regionLookupState === "error") return "地区查询失败，请检查网络或数据库设置";
+  if (outputUris.length > 0) return "当前筛选条件没有匹配到节点";
   if (sourceResults.length > 0) return "本次转换没有可用节点";
   return "等待转换结果";
 }
 
-function availableOutputRegionCodes(group: OutputGroup): string[] {
+function availableOutputRegionCodes(): string[] {
   return [...new Set([
-    ...group.matchCountries,
+    ...outputFilter.countries,
     ...outputEntries.map(entry => entry.countryCode ?? UNKNOWN_REGION_CODE),
   ])].sort((left, right) => {
     if (left === UNKNOWN_REGION_CODE) return 1;
@@ -838,291 +814,124 @@ function availableOutputRegionCodes(group: OutputGroup): string[] {
   });
 }
 
-function updateOutputRuleDialogSummaries() {
-  dom.outputRuleProtocolSummary.textContent = draftMatchProtocols.length
-    ? `已选 ${draftMatchProtocols.length} 种`
-    : "未选择";
-  dom.outputRuleRegionSummary.textContent = draftMatchCountries.length
-    ? `已选 ${draftMatchCountries.length} 个地区`
+function updateOutputFilterDialogSummaries() {
+  dom.outputFilterProtocolSummary.textContent = draftFilterProtocols.length
+    ? `已选 ${draftFilterProtocols.length} 种`
+    : "全部类型";
+  dom.outputFilterRegionSummary.textContent = draftFilterCountries.length
+    ? `已选 ${draftFilterCountries.length} 个地区`
     : "全部地区";
-  dom.outputRuleCloudflareSummary.textContent = draftMatchCloudflare ? "仅 CF 入口" : "全部入口";
-  dom.outputRuleCloudflareEntry.checked = draftMatchCloudflare;
+  dom.outputFilterCloudflareSummary.textContent = draftFilterCloudflare ? "仅 CF 入口" : "全部入口";
+  dom.outputFilterCloudflareEntry.checked = draftFilterCloudflare;
 }
 
-function renderOutputRuleDialogOptions(group: OutputGroup) {
-  dom.outputRuleProtocolOptions.replaceChildren();
+function renderOutputFilterDialogOptions() {
+  dom.outputFilterProtocolOptions.replaceChildren();
   for (const item of OUTPUT_PROTOCOLS) {
     const optionLabel = document.createElement("label");
-    optionLabel.className = "output-group-protocol-option";
+    optionLabel.className = "output-filter-option";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.value = item.value;
-    checkbox.checked = draftMatchProtocols.includes(item.value);
+    checkbox.checked = draftFilterProtocols.includes(item.value);
     checkbox.setAttribute("aria-label", `节点类型：${item.label}`);
     const optionName = document.createElement("span");
     optionName.textContent = item.label;
     checkbox.addEventListener("change", () => {
-      const selected = new Set(draftMatchProtocols);
+      const selected = new Set(draftFilterProtocols);
       if (checkbox.checked) selected.add(item.value);
       else selected.delete(item.value);
-      draftMatchProtocols = OUTPUT_PROTOCOLS
+      draftFilterProtocols = OUTPUT_PROTOCOLS
         .map(protocol => protocol.value)
         .filter(protocol => selected.has(protocol));
-      updateOutputRuleDialogSummaries();
+      updateOutputFilterDialogSummaries();
     });
     optionLabel.append(checkbox, optionName);
-    dom.outputRuleProtocolOptions.append(optionLabel);
+    dom.outputFilterProtocolOptions.append(optionLabel);
   }
 
-  dom.outputRuleRegionOptions.replaceChildren();
-  const regionCodes = availableOutputRegionCodes(group);
+  dom.outputFilterRegionOptions.replaceChildren();
+  const regionCodes = availableOutputRegionCodes();
   if (regionCodes.length === 0) {
     const empty = document.createElement("span");
     empty.className = "output-region-empty";
     empty.textContent = "完成节点转换后，这里会显示识别到的地区。";
-    dom.outputRuleRegionOptions.append(empty);
+    dom.outputFilterRegionOptions.append(empty);
   }
   for (const code of regionCodes) {
     const optionLabel = document.createElement("label");
-    optionLabel.className = "output-group-protocol-option";
+    optionLabel.className = "output-filter-option";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.value = code;
-    checkbox.checked = draftMatchCountries.includes(code);
+    checkbox.checked = draftFilterCountries.includes(code);
     const regionName = countryNameForCode(code);
     checkbox.setAttribute("aria-label", `地区：${regionName}`);
     const optionName = document.createElement("span");
     optionName.textContent = `${regionName} · ${code}`;
     checkbox.addEventListener("change", () => {
-      const selected = new Set(draftMatchCountries);
+      const selected = new Set(draftFilterCountries);
       if (checkbox.checked) selected.add(code);
       else selected.delete(code);
-      draftMatchCountries = regionCodes.filter(regionCode => selected.has(regionCode));
-      updateOutputRuleDialogSummaries();
+      draftFilterCountries = regionCodes.filter(regionCode => selected.has(regionCode));
+      updateOutputFilterDialogSummaries();
     });
     optionLabel.append(checkbox, optionName);
-    dom.outputRuleRegionOptions.append(optionLabel);
+    dom.outputFilterRegionOptions.append(optionLabel);
   }
-  updateOutputRuleDialogSummaries();
+  updateOutputFilterDialogSummaries();
 }
 
-function openOutputRuleDialog(groupId: string) {
-  const group = outputGroups.find(item => item.id === groupId);
-  if (!group || dom.outputRuleDialog.open) return;
-  activeOutputRuleGroupId = group.id;
-  draftMatchProtocols = [...group.matchProtocols];
-  draftMatchCountries = [...group.matchCountries];
-  draftMatchCloudflare = group.matchCloudflare;
-  dom.outputRuleDialogTitle.textContent = `设置“${group.name}”的匹配规则`;
-  renderOutputRuleDialogOptions(group);
-  dom.outputRuleDialog.showModal();
+function openOutputFilterDialog() {
+  if (dom.outputFilterDialog.open) return;
+  draftFilterProtocols = [...outputFilter.protocols];
+  draftFilterCountries = [...outputFilter.countries];
+  draftFilterCloudflare = outputFilter.cloudflare;
+  renderOutputFilterDialogOptions();
+  dom.outputFilterDialog.showModal();
 }
 
-function saveOutputRuleDialog() {
-  const group = outputGroups.find(item => item.id === activeOutputRuleGroupId);
-  if (!group) {
-    dom.outputRuleDialog.close("cancel");
-    return;
-  }
-  group.matchProtocols = [...draftMatchProtocols];
-  group.matchCountries = [...draftMatchCountries];
-  group.matchCloudflare = draftMatchCloudflare;
-  saveOutputGroups();
-  const groupId = group.id;
-  dom.outputRuleDialog.close("save");
-  renderOutputGroups();
+function saveOutputFilterDialog() {
+  outputFilter = {
+    protocols: [...draftFilterProtocols],
+    countries: [...draftFilterCountries],
+    cloudflare: draftFilterCloudflare,
+  };
+  saveOutputFilter();
+  dom.outputFilterDialog.close("save");
+  renderOutputFilter();
   void enrichOutputCloudflare();
-  const renderedCard = Array.from(dom.outputGroupList.querySelectorAll<HTMLElement>("[data-group-id]"))
-    .find(element => element.dataset.groupId === groupId);
-  renderedCard?.querySelector<HTMLButtonElement>(".output-group-rule-button")?.focus();
+  dom.outputFilterButton.focus();
 }
 
-function renderOutputGroup(group: OutputGroup, index: number): HTMLElement {
-  const uris = getOutputGroupUris(group);
-  const card = document.createElement("article");
-  card.className = "output-group-card";
-  card.setAttribute("role", "listitem");
-  card.dataset.groupId = group.id;
-  card.setAttribute("aria-label", group.name);
-
-  const heading = document.createElement("div");
-  heading.className = "output-group-heading";
-  const number = document.createElement("span");
-  number.className = "output-group-number";
-  number.textContent = `分组 ${String(index + 1).padStart(2, "0")}`;
-  const name = document.createElement("input");
-  name.className = "text-input output-group-name";
-  name.type = "text";
-  name.maxLength = 60;
-  name.value = group.name;
-  name.setAttribute("aria-label", `第 ${index + 1} 个分组名称`);
-  name.addEventListener("change", () => {
-    group.name = name.value.trim() || (group.matchProtocols[0] ? getProtocolLabel(group.matchProtocols[0]) : "新分组");
-    name.value = group.name;
-    card.setAttribute("aria-label", group.name);
-    remove.setAttribute("aria-label", `删除分组 ${group.name}`);
-    saveOutputGroups();
-  });
-  const remove = document.createElement("button");
-  remove.className = "output-group-remove";
-  remove.type = "button";
-  remove.textContent = "×";
-  remove.setAttribute("aria-label", `删除分组 ${group.name}`);
-  remove.addEventListener("click", () => {
-    outputGroups = outputGroups.filter(item => item.id !== group.id);
-    saveOutputGroups();
-    renderOutputGroups();
-  });
-  heading.append(number, name, remove);
-
-  const ruleRow = document.createElement("div");
-  ruleRow.className = "output-group-rule-row";
-  const ruleSummary = document.createElement("span");
-  ruleSummary.className = "output-group-rule-summary";
-  const protocolSummary = group.matchProtocols.length
-    ? group.matchProtocols.map(getProtocolLabel).join(" / ")
-    : "未选择节点类型";
-  const regionSummary = group.matchCountries.length
-    ? group.matchCountries.map(countryNameForCode).join("、")
-    : "全部地区";
-  ruleSummary.textContent = `${protocolSummary} · ${regionSummary}${group.matchCloudflare ? " · CF 入口" : ""}`;
-  ruleSummary.title = `${protocolSummary} · ${regionSummary}${group.matchCloudflare ? " · CF 入口" : ""}`;
-
-  const ruleButton = document.createElement("button");
-  ruleButton.className = "output-group-rule-button";
-  ruleButton.type = "button";
-  ruleButton.setAttribute("aria-haspopup", "dialog");
-  ruleButton.setAttribute("aria-label", `设置 ${group.name} 的匹配规则`);
-  const ruleIcon = document.createElement("span");
-  ruleIcon.className = "output-group-rule-button-icon";
-  ruleIcon.setAttribute("aria-hidden", "true");
-  ruleIcon.textContent = "⚙";
-  const ruleLabel = document.createElement("span");
-  ruleLabel.textContent = "匹配规则";
-  ruleButton.append(ruleIcon, ruleLabel);
-  ruleButton.addEventListener("click", () => openOutputRuleDialog(group.id));
-  ruleRow.append(ruleSummary, ruleButton);
-  const resultHeading = document.createElement("div");
-  resultHeading.className = "output-group-result-heading";
-  const resultTitle = document.createElement("strong");
-  resultTitle.textContent = "匹配节点";
-  const count = document.createElement("span");
-  count.className = "output-group-result-count";
-  count.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([uris.join("\n")]).size)}`;
-  resultHeading.append(resultTitle, count);
-
-  const output = document.createElement("textarea");
-  output.className = "output-textarea output-group-textarea";
-  output.readOnly = true;
-  output.spellcheck = false;
-  output.rows = 4;
-  output.value = uris.join("\n");
-  output.setAttribute("aria-label", `${group.name}分组的匹配节点 URI`);
-  output.hidden = uris.length === 0;
-
-  const empty = document.createElement("div");
-  empty.className = "output-group-result-empty";
-  empty.textContent = groupResultEmptyText(group);
-  empty.hidden = uris.length > 0;
-
-  const actions = document.createElement("div");
-  actions.className = "output-group-actions";
-  const copy = document.createElement("button");
-  copy.className = "secondary-button";
-  copy.type = "button";
-  copy.textContent = "复制本组";
-  copy.disabled = uris.length === 0;
-  copy.addEventListener("click", () => void copyOutputGroup(group.id));
-  const saveGroup = document.createElement("button");
-  saveGroup.className = "secondary-button";
-  saveGroup.type = "button";
-  saveGroup.textContent = "保存本组";
-  saveGroup.disabled = uris.length === 0;
-  saveGroup.addEventListener("click", () => void saveOutputGroup(group.id));
-  actions.append(copy, saveGroup);
-
-  card.append(heading, ruleRow, resultHeading);
-  if (uris.length > 0) {
-    card.append(output, actions);
-  } else {
-    card.append(empty);
-  }
-  return card;
-}
-
-function renderUnmatchedOutput(uris: string[]): HTMLElement {
-  const card = document.createElement("article");
-  card.className = "output-group-card output-unmatched-card";
-  card.setAttribute("role", "listitem");
-  const heading = document.createElement("div");
-  heading.className = "output-group-result-heading";
-  const title = document.createElement("strong");
-  title.textContent = "未匹配分组规则";
-  const count = document.createElement("span");
+function renderOutputFilter() {
+  const filteredEntries = getFilteredOutputEntries();
+  const uris = filteredEntries.map(entry => entry.uri);
   const value = uris.join("\n");
-  count.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([value]).size)}`;
-  heading.append(title, count);
-  const note = document.createElement("p");
-  note.className = "output-group-unmatched-note";
-  note.textContent = "这些节点没有命中任何分组，仍保留在全部输出中。";
-  const output = document.createElement("textarea");
-  output.className = "output-textarea output-group-textarea";
-  output.readOnly = true;
-  output.spellcheck = false;
-  output.rows = 4;
-  output.value = value;
-  output.setAttribute("aria-label", "未匹配分组规则的节点 URI");
-  const actions = document.createElement("div");
-  actions.className = "output-group-actions";
-  const copy = document.createElement("button");
-  copy.className = "secondary-button";
-  copy.type = "button";
-  copy.textContent = "复制未匹配节点";
-  copy.addEventListener("click", () => void copyUris(uris, "未匹配节点"));
-  actions.append(copy);
-  card.append(heading, note, output, actions);
-  return card;
-}
+  const summary = outputFilterSummaryText();
 
-function renderOutputGroups() {
-  dom.outputGroupList.replaceChildren();
-  dom.outputGroupEmpty.hidden = outputGroups.length > 0;
-  for (const [index, group] of outputGroups.entries()) {
-    dom.outputGroupList.append(renderOutputGroup(group, index));
-  }
-
-  const unmatched = outputEntries
-    .filter(entry => !outputGroups.some(group => outputEntryMatchesGroup(entry, group)))
-    .map(entry => entry.uri);
-  if (unmatched.length > 0) dom.outputGroupList.append(renderUnmatchedOutput(unmatched));
+  dom.outputFilterText.value = value;
+  dom.outputFilterText.hidden = uris.length === 0;
+  dom.outputFilterEmpty.hidden = uris.length > 0;
+  dom.outputFilterEmpty.textContent = filteredResultEmptyText();
+  dom.outputFilterCount.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([value]).size)}`;
+  dom.outputFilterSummary.textContent = summary;
+  dom.outputFilterSummary.title = summary;
 
   const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
   const cloudflareCount = outputEntries.filter(entry => entry.isCloudflare === true).length;
   const unresolvedCloudflareCount = outputEntries.filter(entry => entry.isCloudflare === null).length;
-  const cloudflareStatus = cloudflareDetectionState === "running"
+  const cloudflareStatus = cloudflareDetectionState === "running" && outputFilter.cloudflare
     ? " · CF 入口检测中"
-    : cloudflareDetectionState === "done" && outputGroups.some(group => group.matchCloudflare)
+    : cloudflareDetectionState === "done" && outputFilter.cloudflare
       ? ` · CF 入口 ${cloudflareCount} 个${unresolvedCloudflareCount > 0 ? `（${unresolvedCloudflareCount} 个未解析）` : ""}`
       : "";
-  dom.outputOverview.textContent = `${outputUris.length} 个节点 · ${outputGroups.length} 个分组${regionStatus}${cloudflareStatus}`;
-  dom.copyButton.disabled = outputUris.length === 0;
-  dom.saveButton.disabled = outputUris.length === 0;
-}
-
-function addOutputGroup() {
-  const protocol = OUTPUT_PROTOCOLS.find(item => !outputGroups.some(group => group.matchProtocols.includes(item.value)))?.value
-    ?? OUTPUT_PROTOCOLS[0].value;
-  const sameTypeCount = outputGroups.filter(group => group.matchProtocols.includes(protocol)).length;
-  const baseName = getProtocolLabel(protocol);
-  outputGroups.push({
-    id: createOutputGroupId(),
-    name: sameTypeCount ? `${baseName} ${sameTypeCount + 1}` : baseName,
-    matchProtocols: [protocol],
-    matchCountries: [],
-    matchCloudflare: false,
-  });
-  saveOutputGroups();
-  renderOutputGroups();
+  const countText = isOutputFilterActive()
+    ? `${uris.length} / ${outputUris.length} 个节点`
+    : `${outputUris.length} 个节点`;
+  dom.outputOverview.textContent = `${countText}${regionStatus}${cloudflareStatus}`;
+  dom.copyButton.disabled = uris.length === 0;
+  dom.saveButton.disabled = uris.length === 0;
 }
 
 async function enrichOutputRegions() {
@@ -1130,13 +939,13 @@ async function enrichOutputRegions() {
   const entries = [...outputEntries];
   if (entries.length === 0) {
     regionLookupState = "idle";
-    renderOutputGroups();
+    renderOutputFilter();
     return;
   }
 
   regionLookupState = regionLookupMethods.length > 0 ? "running" : "done";
   for (const entry of entries) entry.countryCode = null;
-  renderOutputGroups();
+  renderOutputFilter();
 
   const unresolved = new Map(entries.map(entry => [entry.id, entry]));
   let lookupFailed = false;
@@ -1178,7 +987,7 @@ async function enrichOutputRegions() {
 
   if (runId !== regionLookupRunId) return;
   regionLookupState = lookupFailed ? "error" : "done";
-  renderOutputGroups();
+  renderOutputFilter();
 }
 
 async function enrichOutputCloudflare() {
@@ -1188,7 +997,7 @@ async function enrichOutputCloudflare() {
     cloudflareDetectionState = "idle";
     return;
   }
-  if (!outputGroups.some(group => group.matchCloudflare)) {
+  if (!outputFilter.cloudflare) {
     if (cloudflareDetectionState === "running") {
       cloudflareDetectionRunId += 1;
       cloudflareDetectionState = "idle";
@@ -1201,7 +1010,7 @@ async function enrichOutputCloudflare() {
   const runId = ++cloudflareDetectionRunId;
   cloudflareDetectionState = "running";
   for (const entry of entries) entry.isCloudflare = null;
-  renderOutputGroups();
+  renderOutputFilter();
   try {
     const results = await invoke<Array<{ id: string; isCloudflare: boolean | null }>>("lookup_cloudflare_entries", {
       nodes: entries.map(({ id, server }) => ({ id, server })),
@@ -1215,7 +1024,7 @@ async function enrichOutputCloudflare() {
     cloudflareDetectionState = "error";
     appendLog(`CF 入口检测失败：${failureFrom(error).message}`, true);
   }
-  if (runId === cloudflareDetectionRunId) renderOutputGroups();
+  if (runId === cloudflareDetectionRunId) renderOutputFilter();
 }
 
 function aggregateResults(result: ConversionResult, logDiagnostics = true) {
@@ -1261,7 +1070,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
   dom.sourceCount.textContent = String(successfulSources);
   dom.duplicateCount.textContent = String(duplicateCount);
 
-  renderOutputGroups();
+  renderOutputFilter();
   if (logDiagnostics) appendConversionDiagnostics(result);
   void enrichOutputRegions();
   void enrichOutputCloudflare();
@@ -1534,7 +1343,7 @@ async function startConversion() {
   dom.sourceCount.textContent = "0";
   dom.duplicateCount.textContent = "0";
   setBusy(true);
-  renderOutputGroups();
+  renderOutputFilter();
   updateProgress(completedSources, totalSources);
 
   await runWithConcurrency(canFetchRemote ? input.urls : [], fetchConcurrency, async (url, index) => {
@@ -1662,13 +1471,13 @@ async function copyText(value: string) {
 }
 
 function safeFilePart(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 48) || "group";
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 48) || "output";
 }
 
-function defaultSaveName(groupName = "all"): string {
+function defaultSaveName(fileName = "all"): string {
   const now = new Date();
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `chimera-subscriptions-${safeFilePart(groupName)}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
+  return `chimera-subscriptions-${safeFilePart(fileName)}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
 }
 
 async function copyUris(uris: string[], label: string) {
@@ -1681,13 +1490,9 @@ async function copyUris(uris: string[], label: string) {
   }
 }
 
-async function copyOutputGroup(groupId: string) {
-  const group = outputGroups.find(item => item.id === groupId);
-  if (group) await copyUris(getOutputGroupUris(group), `“${group.name}”分组`);
-}
-
-async function copyAll() {
-  await copyUris(outputUris, "全部输出");
+async function copyFilteredOutput() {
+  const uris = getFilteredOutputUris();
+  await copyUris(uris, isOutputFilterActive() ? "筛选结果" : "全部输出");
 }
 
 async function saveUris(uris: string[], fileName: string, label: string) {
@@ -1705,19 +1510,10 @@ async function saveUris(uris: string[], fileName: string, label: string) {
   }
 }
 
-async function saveOutputGroup(groupId: string) {
-  const group = outputGroups.find(item => item.id === groupId);
-  if (!group) return;
-  const index = outputGroups.findIndex(item => item.id === groupId) + 1;
-  const protocolPart = group.matchProtocols.map(protocol => protocol).join("-") || "empty";
-  const regionPart = group.matchCountries.length
-    ? `-${group.matchCountries.map(code => code === UNKNOWN_REGION_CODE ? "unknown" : code).join("-")}`
-    : "";
-  await saveUris(getOutputGroupUris(group), `${protocolPart}${regionPart}-${index}`, `“${group.name}”分组`);
-}
-
-async function saveAll() {
-  await saveUris(outputUris, "all", "全部输出");
+async function saveFilteredOutput() {
+  const uris = getFilteredOutputUris();
+  const filtered = isOutputFilterActive();
+  await saveUris(uris, filtered ? "filtered" : "all", filtered ? "筛选结果" : "全部输出");
 }
 
 function bindEvents() {
@@ -1727,24 +1523,21 @@ function bindEvents() {
   });
   dom.clearLogButton.addEventListener("click", clearLog);
   dom.importFileButton.addEventListener("click", () => void importFile());
-  dom.addOutputGroupButton.addEventListener("click", addOutputGroup);
-  dom.outputRuleDialogClose.addEventListener("click", () => dom.outputRuleDialog.close("cancel"));
-  dom.outputRuleDialogCancel.addEventListener("click", () => dom.outputRuleDialog.close("cancel"));
-  dom.outputRuleDialogSave.addEventListener("click", saveOutputRuleDialog);
-  dom.outputRuleCloudflareEntry.addEventListener("change", () => {
-    draftMatchCloudflare = dom.outputRuleCloudflareEntry.checked;
-    updateOutputRuleDialogSummaries();
+  dom.outputFilterButton.addEventListener("click", openOutputFilterDialog);
+  dom.outputFilterDialogClose.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
+  dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
+  dom.outputFilterDialogSave.addEventListener("click", saveOutputFilterDialog);
+  dom.outputFilterCloudflareEntry.addEventListener("change", () => {
+    draftFilterCloudflare = dom.outputFilterCloudflareEntry.checked;
+    updateOutputFilterDialogSummaries();
   });
-  dom.outputRuleDialog.addEventListener("click", event => {
-    if (event.target === dom.outputRuleDialog) dom.outputRuleDialog.close("cancel");
-  });
-  dom.outputRuleDialog.addEventListener("close", () => {
-    activeOutputRuleGroupId = null;
+  dom.outputFilterDialog.addEventListener("click", event => {
+    if (event.target === dom.outputFilterDialog) dom.outputFilterDialog.close("cancel");
   });
   dom.chooseGeoIpDatabaseButton.addEventListener("click", () => void chooseGeoIpDatabase());
   dom.clearGeoIpDatabaseButton.addEventListener("click", clearGeoIpDatabase);
-  dom.copyButton.addEventListener("click", () => void copyAll());
-  dom.saveButton.addEventListener("click", () => void saveAll());
+  dom.copyButton.addEventListener("click", () => void copyFilteredOutput());
+  dom.saveButton.addEventListener("click", () => void saveFilteredOutput());
   document.addEventListener("keydown", event => {
     if (event.key !== "Escape") return;
     if (activeDetail) {
@@ -1787,7 +1580,7 @@ function bindEvents() {
   });
 
   renderRegionLookupSettings();
-  renderOutputGroups();
+  renderOutputFilter();
   bindPanelResizers();
   applyPanelRatios();
 }

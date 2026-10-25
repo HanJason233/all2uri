@@ -184,32 +184,42 @@
               </div>
             </div>
 
-            <div class="output-group-toolbar">
+            <div class="output-filter-toolbar">
               <div>
-                <strong id="output-group-title">输出分组</strong>
-                <p>节点类型与地区条件共同筛选；每个分组独立生成结果。</p>
+                <strong>筛选</strong>
+                <p id="output-filter-summary">全部节点</p>
               </div>
-              <button class="output-group-add-button" id="add-output-group" type="button">
-                <span aria-hidden="true">+</span> 新建分组
+              <button class="secondary-button" id="output-filter-button" type="button" aria-haspopup="dialog">
+                设置筛选
               </button>
             </div>
-            <div class="output-group-empty" id="output-group-empty" hidden>
-              尚未创建分组，添加分组并设置匹配规则。
+            <div class="output-filter-result">
+              <div class="output-filter-result-heading">
+                <strong>筛选结果</strong>
+                <span id="output-filter-count">0 个节点 · 0 B</span>
+              </div>
+              <textarea
+                id="output-filter-text"
+                class="output-textarea output-filter-text"
+                readonly
+                spellcheck="false"
+                aria-label="筛选后的节点 URI"
+                hidden
+              ></textarea>
+              <div class="output-filter-empty" id="output-filter-empty">等待转换结果</div>
             </div>
-            <div class="output-group-list" id="output-group-list" role="list"></div>
             <div class="output-global-actions">
               <span id="output-overview">等待输出</span>
               <div>
-                <button class="secondary-button" id="copy-button" type="button" disabled>复制全部</button>
+                <button class="secondary-button" id="copy-button" type="button" disabled>复制结果</button>
                 <button class="primary-button compact" id="save-button" type="button" disabled>
                   <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                     <path d="M10 3v9m0 0 3.2-3.2M10 12 6.8 8.8M4 13.8v1.5c0 .9.7 1.7 1.7 1.7h8.6c.9 0 1.7-.8 1.7-1.7v-1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
                   </svg>
-                  保存全部
+                  保存结果
                 </button>
               </div>
             </div>
-
 
           </section>
         </div>
@@ -224,45 +234,45 @@
       </section>
     </div>
 
-    <dialog class="output-rule-dialog" id="output-rule-dialog" aria-labelledby="output-rule-dialog-title">
+    <dialog class="output-rule-dialog" id="output-filter-dialog" aria-labelledby="output-filter-dialog-title">
       <div class="output-rule-dialog-content">
         <header class="output-rule-dialog-header">
           <div>
-            <h2 id="output-rule-dialog-title">设置匹配规则</h2>
-            <p>节点类型、地区和 CF 入口筛选同时生效；同组所选类型和地区按“或”匹配。</p>
+            <h2 id="output-filter-dialog-title">设置筛选条件</h2>
+            <p>节点类型、地区和 CF 入口同时生效；同类多选按“或”匹配。不选类型或地区表示全部。</p>
           </div>
-          <button class="output-rule-dialog-close" id="output-rule-dialog-close" type="button" aria-label="关闭匹配规则设置">×</button>
+          <button class="output-rule-dialog-close" id="output-filter-dialog-close" type="button" aria-label="关闭筛选设置">×</button>
         </header>
         <div class="output-rule-dialog-body">
-          <section class="output-rule-section" aria-labelledby="output-rule-protocol-title">
+          <section class="output-rule-section" aria-labelledby="output-filter-protocol-title">
             <div class="output-rule-section-heading">
-              <h3 id="output-rule-protocol-title">节点类型</h3>
-              <span id="output-rule-protocol-summary">未选择</span>
+              <h3 id="output-filter-protocol-title">节点类型</h3>
+              <span id="output-filter-protocol-summary">全部类型</span>
             </div>
-            <div class="output-group-protocol-options output-rule-options" id="output-rule-protocol-options"></div>
+            <div class="output-rule-options" id="output-filter-protocol-options"></div>
           </section>
-          <section class="output-rule-section" aria-labelledby="output-rule-region-title">
+          <section class="output-rule-section" aria-labelledby="output-filter-region-title">
             <div class="output-rule-section-heading">
-              <h3 id="output-rule-region-title">地区组</h3>
-              <span id="output-rule-region-summary">全部地区</span>
+              <h3 id="output-filter-region-title">地区</h3>
+              <span id="output-filter-region-summary">全部地区</span>
             </div>
-            <div class="output-group-protocol-options output-rule-options" id="output-rule-region-options"></div>
+            <div class="output-rule-options" id="output-filter-region-options"></div>
           </section>
-          <section class="output-rule-section" aria-labelledby="output-rule-cf-title">
+          <section class="output-rule-section" aria-labelledby="output-filter-cf-title">
             <div class="output-rule-section-heading">
-              <h3 id="output-rule-cf-title">服务器入口</h3>
-              <span id="output-rule-cf-summary">全部入口</span>
+              <h3 id="output-filter-cf-title">服务器入口</h3>
+              <span id="output-filter-cf-summary">全部入口</span>
             </div>
-            <label class="output-group-protocol-option output-rule-cf-option">
-              <input id="output-rule-cf-entry" type="checkbox" />
-              <span>仅匹配 Cloudflare（CF）入口</span>
+            <label class="output-filter-option output-rule-cf-option">
+              <input id="output-filter-cf-entry" type="checkbox" />
+              <span>仅显示 Cloudflare（CF）入口</span>
             </label>
             <p class="output-rule-cf-description">只检查节点服务器入口 IP 是否属于 Cloudflare 网段，不检测代理出口。</p>
           </section>
         </div>
         <footer class="output-rule-dialog-actions">
-          <button class="secondary-button" id="output-rule-dialog-cancel" type="button">取消</button>
-          <button class="primary-button compact" id="output-rule-dialog-save" type="button">保存规则</button>
+          <button class="secondary-button" id="output-filter-dialog-cancel" type="button">取消</button>
+          <button class="primary-button compact" id="output-filter-dialog-save" type="button">应用筛选</button>
         </footer>
       </div>
     </dialog>
