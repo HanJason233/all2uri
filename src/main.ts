@@ -43,10 +43,12 @@ interface CategorizedOutput {
   isCloudflare: boolean | null;
 }
 
+type CloudflareEntryFilter = "all" | "yes" | "no";
+
 interface OutputFilter {
   protocols: ProxyProtocol[];
   countries: string[];
-  cloudflare: boolean;
+  cloudflareEntry: CloudflareEntryFilter;
 }
 
 type SourceKind = "local" | "remote";
@@ -140,20 +142,24 @@ function loadGeoIpDatabasePath(): string {
 }
 
 function loadOutputFilter(): OutputFilter {
-  const empty = (): OutputFilter => ({ protocols: [], countries: [], cloudflare: false });
+  const empty = (): OutputFilter => ({ protocols: [], countries: [], cloudflareEntry: "all" });
   try {
     const stored = window.localStorage.getItem(OUTPUT_FILTER_STORAGE_KEY);
     if (stored === null) return empty();
     const parsed: unknown = JSON.parse(stored);
     if (typeof parsed !== "object" || parsed === null) return empty();
-    const candidate = parsed as Partial<OutputFilter>;
+    const candidate = parsed as Partial<OutputFilter> & { cloudflare?: unknown };
     const protocols = Array.isArray(candidate.protocols)
       ? [...new Set(candidate.protocols.filter(isProxyProtocol))]
       : [];
     const countries = Array.isArray(candidate.countries)
       ? [...new Set(candidate.countries.map(normalizeRegionCode).filter((code): code is string => code !== null))]
       : [];
-    return { protocols, countries, cloudflare: candidate.cloudflare === true };
+    const cloudflareEntry: CloudflareEntryFilter =
+      candidate.cloudflareEntry === "yes" || candidate.cloudflareEntry === "no" || candidate.cloudflareEntry === "all"
+        ? candidate.cloudflareEntry
+        : candidate.cloudflare === true ? "yes" : "all";
+    return { protocols, countries, cloudflareEntry };
   } catch {
     return empty();
   }
@@ -334,7 +340,7 @@ const dom = {
   outputFilterProtocolSummary: getElement<HTMLSpanElement>("output-filter-protocol-summary"),
   outputFilterRegionOptions: getElement<HTMLDivElement>("output-filter-region-options"),
   outputFilterRegionSummary: getElement<HTMLSpanElement>("output-filter-region-summary"),
-  outputFilterCloudflareEntry: getElement<HTMLInputElement>("output-filter-cf-entry"),
+  outputFilterCloudflareEntry: getElement<HTMLSelectElement>("output-filter-cf-entry"),
   outputFilterCloudflareSummary: getElement<HTMLSpanElement>("output-filter-cf-summary"),
   outputOverview: getElement<HTMLSpanElement>("output-overview"),
   nodeCount: getElement<HTMLElement>("node-count"),
@@ -390,7 +396,7 @@ let cloudflareDetectionState: "idle" | "running" | "done" | "error" = "idle";
 let cloudflareDetectionRunId = 0;
 let draftFilterProtocols: ProxyProtocol[] = [];
 let draftFilterCountries: string[] = [];
-let draftFilterCloudflare = false;
+let draftFilterCloudflareEntry: CloudflareEntryFilter = "all";
 let duplicateCount = 0;
 let activeSourceDocuments: SourceDocument[] = [];
 let conversionAbort: AbortController | null = null;
@@ -763,7 +769,9 @@ function appendConversionDiagnostics(result: ConversionResult) {
 function outputEntryMatchesFilter(entry: CategorizedOutput): boolean {
   if (outputFilter.protocols.length > 0 && !outputFilter.protocols.includes(entry.protocol)) return false;
   if (outputFilter.countries.length > 0 && !outputFilter.countries.includes(entry.countryCode ?? UNKNOWN_REGION_CODE)) return false;
-  return !outputFilter.cloudflare || entry.isCloudflare === true;
+  if (outputFilter.cloudflareEntry === "yes" && entry.isCloudflare !== true) return false;
+  if (outputFilter.cloudflareEntry === "no" && entry.isCloudflare !== false) return false;
+  return true;
 }
 
 function getFilteredOutputEntries(): CategorizedOutput[] {
@@ -775,7 +783,7 @@ function getFilteredOutputUris(): string[] {
 }
 
 function isOutputFilterActive(): boolean {
-  return outputFilter.protocols.length > 0 || outputFilter.countries.length > 0 || outputFilter.cloudflare;
+  return outputFilter.protocols.length > 0 || outputFilter.countries.length > 0 || outputFilter.cloudflareEntry !== "all";
 }
 
 function outputFilterSummaryText(): string {
@@ -784,15 +792,17 @@ function outputFilterSummaryText(): string {
     outputFilter.protocols.length ? outputFilter.protocols.map(getProtocolLabel).join(" / ") : "全部类型",
     outputFilter.countries.length ? outputFilter.countries.map(countryNameForCode).join("、") : "全部地区",
   ];
-  if (outputFilter.cloudflare) parts.push("CF 入口");
+  if (outputFilter.cloudflareEntry === "yes") parts.push("CF 入口");
+  else if (outputFilter.cloudflareEntry === "no") parts.push("非 CF 入口");
   return parts.join(" · ");
 }
 
 function filteredResultEmptyText(): string {
-  if (outputFilter.cloudflare && cloudflareDetectionState === "running") return "正在检查服务器入口 IP，完成后显示 CF 节点";
-  if (outputFilter.cloudflare && cloudflareDetectionState === "error") return "CF 入口检测失败，请重新应用筛选条件";
-  if (outputFilter.cloudflare && cloudflareDetectionState === "idle" && outputEntries.length > 0) return "等待 CF 入口检测";
-  if (outputFilter.cloudflare && cloudflareDetectionState === "done" && outputEntries.some(entry => entry.isCloudflare === null)) {
+  const cloudflareFilterActive = outputFilter.cloudflareEntry !== "all";
+  if (cloudflareFilterActive && cloudflareDetectionState === "running") return "正在检查服务器入口 IP，完成后显示筛选结果";
+  if (cloudflareFilterActive && cloudflareDetectionState === "error") return "服务器入口检测失败，请重新应用筛选条件";
+  if (cloudflareFilterActive && cloudflareDetectionState === "idle" && outputEntries.length > 0) return "等待服务器入口检测";
+  if (cloudflareFilterActive && cloudflareDetectionState === "done" && outputEntries.some(entry => entry.isCloudflare === null)) {
     return "部分服务器入口无法解析，未识别的节点不会显示";
   }
   if (regionLookupState === "running") return "正在查询节点地区，完成后显示筛选结果";
@@ -821,8 +831,10 @@ function updateOutputFilterDialogSummaries() {
   dom.outputFilterRegionSummary.textContent = draftFilterCountries.length
     ? `已选 ${draftFilterCountries.length} 个地区`
     : "全部地区";
-  dom.outputFilterCloudflareSummary.textContent = draftFilterCloudflare ? "仅 CF 入口" : "全部入口";
-  dom.outputFilterCloudflareEntry.checked = draftFilterCloudflare;
+  dom.outputFilterCloudflareSummary.textContent = draftFilterCloudflareEntry === "yes"
+    ? "CF 入口"
+    : draftFilterCloudflareEntry === "no" ? "非 CF 入口" : "全部入口";
+  dom.outputFilterCloudflareEntry.value = draftFilterCloudflareEntry;
 }
 
 function renderOutputFilterDialogOptions() {
@@ -886,7 +898,7 @@ function openOutputFilterDialog() {
   if (dom.outputFilterDialog.open) return;
   draftFilterProtocols = [...outputFilter.protocols];
   draftFilterCountries = [...outputFilter.countries];
-  draftFilterCloudflare = outputFilter.cloudflare;
+  draftFilterCloudflareEntry = outputFilter.cloudflareEntry;
   renderOutputFilterDialogOptions();
   dom.outputFilterDialog.showModal();
 }
@@ -895,7 +907,7 @@ function saveOutputFilterDialog() {
   outputFilter = {
     protocols: [...draftFilterProtocols],
     countries: [...draftFilterCountries],
-    cloudflare: draftFilterCloudflare,
+    cloudflareEntry: draftFilterCloudflareEntry,
   };
   saveOutputFilter();
   dom.outputFilterDialog.close("save");
@@ -921,9 +933,10 @@ function renderOutputFilter() {
   const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
   const cloudflareCount = outputEntries.filter(entry => entry.isCloudflare === true).length;
   const unresolvedCloudflareCount = outputEntries.filter(entry => entry.isCloudflare === null).length;
-  const cloudflareStatus = cloudflareDetectionState === "running" && outputFilter.cloudflare
-    ? " · CF 入口检测中"
-    : cloudflareDetectionState === "done" && outputFilter.cloudflare
+  const cloudflareFilterActive = outputFilter.cloudflareEntry !== "all";
+  const cloudflareStatus = cloudflareDetectionState === "running" && cloudflareFilterActive
+    ? " · 服务器入口检测中"
+    : cloudflareDetectionState === "done" && cloudflareFilterActive
       ? ` · CF 入口 ${cloudflareCount} 个${unresolvedCloudflareCount > 0 ? `（${unresolvedCloudflareCount} 个未解析）` : ""}`
       : "";
   const countText = isOutputFilterActive()
@@ -997,7 +1010,7 @@ async function enrichOutputCloudflare() {
     cloudflareDetectionState = "idle";
     return;
   }
-  if (!outputFilter.cloudflare) {
+  if (outputFilter.cloudflareEntry === "all") {
     if (cloudflareDetectionState === "running") {
       cloudflareDetectionRunId += 1;
       cloudflareDetectionState = "idle";
@@ -1528,7 +1541,8 @@ function bindEvents() {
   dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogSave.addEventListener("click", saveOutputFilterDialog);
   dom.outputFilterCloudflareEntry.addEventListener("change", () => {
-    draftFilterCloudflare = dom.outputFilterCloudflareEntry.checked;
+    const value = dom.outputFilterCloudflareEntry.value;
+    draftFilterCloudflareEntry = value === "yes" || value === "no" ? value : "all";
     updateOutputFilterDialogSummaries();
   });
   dom.outputFilterDialog.addEventListener("click", event => {

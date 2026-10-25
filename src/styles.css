@@ -1095,11 +1095,34 @@ label.settings-row {
   accent-color: var(--accent);
 }
 
-.output-rule-cf-option {
-  width: fit-content;
+.output-rule-cf-select {
+  display: flex;
   min-height: 36px;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
   padding: 7px 10px;
+  color: var(--text-secondary);
   font-size: 11px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.output-rule-cf-select select {
+  min-width: 112px;
+  min-height: 28px;
+  padding: 3px 6px;
+  color: var(--text);
+  font-size: 11px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.output-rule-cf-select select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .output-rule-cf-description {

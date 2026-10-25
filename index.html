@@ -263,11 +263,15 @@
               <h3 id="output-filter-cf-title">服务器入口</h3>
               <span id="output-filter-cf-summary">全部入口</span>
             </div>
-            <label class="output-filter-option output-rule-cf-option">
-              <input id="output-filter-cf-entry" type="checkbox" />
-              <span>仅显示 Cloudflare（CF）入口</span>
+            <label class="output-rule-cf-select">
+              <span>是否 CF 入口</span>
+              <select id="output-filter-cf-entry">
+                <option value="all">全部</option>
+                <option value="yes">是</option>
+                <option value="no">否</option>
+              </select>
             </label>
-            <p class="output-rule-cf-description">只检查节点服务器入口 IP 是否属于 Cloudflare 网段，不检测代理出口。</p>
+            <p class="output-rule-cf-description">选择“是”只显示 CF 入口，选择“否”只显示非 CF 入口；不检测代理出口。</p>
           </section>
         </div>
         <footer class="output-rule-dialog-actions">
