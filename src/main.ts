@@ -356,7 +356,6 @@ const dom = {
   outputFilterCount: getElement<HTMLSpanElement>("output-filter-count"),
   outputTableWrap: getElement<HTMLDivElement>("output-table-wrap"),
   outputTableBody: getElement<HTMLTableSectionElement>("output-table-body"),
-  outputFilterEmpty: getElement<HTMLDivElement>("output-filter-empty"),
   outputFilterDialog: getElement<HTMLDialogElement>("output-filter-dialog"),
   outputFilterDialogClose: getElement<HTMLButtonElement>("output-filter-dialog-close"),
   outputFilterDialogCancel: getElement<HTMLButtonElement>("output-filter-dialog-cancel"),
@@ -1039,22 +1038,6 @@ function outputFilterSummaryText(): string {
   return parts.join(" · ");
 }
 
-function filteredResultEmptyText(): string {
-  const cloudflareFilterActive = outputFilter.cloudflareEntry !== "all";
-  if (cloudflareFilterActive && cloudflareDetectionState === "running") return "正在检查服务器入口 IP，完成后显示筛选结果";
-  if (cloudflareFilterActive && cloudflareDetectionState === "error") return "服务器入口检测失败，请重新应用筛选条件";
-  if (cloudflareFilterActive && cloudflareDetectionState === "idle" && outputEntries.length > 0) return "等待服务器入口检测";
-  if (cloudflareFilterActive && cloudflareDetectionState === "done" && outputEntries.some(entry => entry.isCloudflare === null)) {
-    return "部分服务器入口无法解析，未识别的节点不会显示";
-  }
-  if (regionLookupState === "running") return "正在查询节点地区，完成后显示筛选结果";
-  if (running) return "正在处理订阅，完成后显示筛选结果";
-  if (outputFilter.countries.length > 0 && regionLookupState === "error") return "地区查询失败，请检查网络或数据库设置";
-  if (outputUris.length > 0) return "当前筛选条件没有匹配到节点";
-  if (sourceResults.length > 0) return "本次转换没有可用节点";
-  return "等待转换结果";
-}
-
 function availableOutputRegionCodes(): string[] {
   return [...new Set([
     ...outputFilter.countries,
@@ -1230,9 +1213,7 @@ function renderOutputFilter() {
 
   dom.outputTableBody.replaceChildren();
   for (const entry of filteredEntries) dom.outputTableBody.append(renderOutputTableRow(entry));
-  dom.outputTableWrap.hidden = filteredEntries.length === 0;
-  dom.outputFilterEmpty.hidden = filteredEntries.length > 0;
-  dom.outputFilterEmpty.textContent = filteredResultEmptyText();
+  dom.outputTableWrap.hidden = false;
   dom.outputFilterCount.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([value]).size)}`;
   dom.outputFilterSummary.textContent = summary;
   dom.outputFilterSummary.title = summary;
