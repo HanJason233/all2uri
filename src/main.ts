@@ -339,7 +339,8 @@ const dom = {
   outputFilterButton: getElement<HTMLButtonElement>("output-filter-button"),
   outputFilterSummary: getElement<HTMLParagraphElement>("output-filter-summary"),
   outputFilterCount: getElement<HTMLSpanElement>("output-filter-count"),
-  outputFilterText: getElement<HTMLTextAreaElement>("output-filter-text"),
+  outputTableWrap: getElement<HTMLDivElement>("output-table-wrap"),
+  outputTableBody: getElement<HTMLTableSectionElement>("output-table-body"),
   outputFilterEmpty: getElement<HTMLDivElement>("output-filter-empty"),
   outputFilterDialog: getElement<HTMLDialogElement>("output-filter-dialog"),
   outputFilterDialogClose: getElement<HTMLButtonElement>("output-filter-dialog-close"),
@@ -955,15 +956,80 @@ function saveOutputFilterDialog() {
   dom.outputFilterButton.focus();
 }
 
+function renderOutputTableRow(entry: CategorizedOutput): HTMLTableRowElement {
+  const row = document.createElement("tr");
+  row.dataset.nodeId = entry.id;
+
+  const nameCell = document.createElement("td");
+  const node = document.createElement("div");
+  node.className = "output-node-main";
+  const name = document.createElement("strong");
+  name.className = "output-table-primary";
+  name.textContent = entry.name.trim() || "未命名节点";
+  name.title = name.textContent;
+  const server = document.createElement("span");
+  server.className = "output-node-meta";
+  server.textContent = entry.server || "—";
+  server.title = server.textContent;
+  const uri = document.createElement("code");
+  uri.className = "output-table-uri";
+  uri.textContent = entry.uri;
+  uri.title = entry.uri;
+  node.append(name, server, uri);
+  nameCell.append(node);
+
+  const protocolCell = document.createElement("td");
+  protocolCell.textContent = getProtocolLabel(entry.protocol);
+
+  const regionCell = document.createElement("td");
+  const region = document.createElement("span");
+  region.className = "output-table-truncate";
+  region.textContent = entry.countryCode
+    ? countryNameForCode(entry.countryCode)
+    : regionLookupState === "running" ? "查询中" : "未知";
+  region.title = entry.countryCode ? `${region.textContent} (${entry.countryCode})` : region.textContent;
+  regionCell.append(region);
+
+  const entryCell = document.createElement("td");
+  const entryBadge = document.createElement("span");
+  entryBadge.className = "output-entry-badge";
+  if (entry.isCloudflare === true) {
+    entryBadge.textContent = "CF";
+    entryBadge.classList.add("is-cloudflare");
+  } else if (entry.isCloudflare === false) {
+    entryBadge.textContent = "非 CF";
+    entryBadge.classList.add("is-non-cloudflare");
+  } else if (outputFilter.cloudflareEntry !== "all" && cloudflareDetectionState === "running") {
+    entryBadge.textContent = "检测中";
+  } else {
+    entryBadge.textContent = "—";
+  }
+  entryCell.append(entryBadge);
+
+  const actionCell = document.createElement("td");
+  actionCell.className = "output-table-action";
+  const copy = document.createElement("button");
+  copy.className = "output-row-copy";
+  copy.type = "button";
+  copy.textContent = "复制";
+  copy.setAttribute("aria-label", `复制节点 ${name.textContent}`);
+  copy.addEventListener("click", () => void copyUris([entry.uri], `节点“${name.textContent}”`));
+  actionCell.append(copy);
+
+  row.append(nameCell, protocolCell, regionCell, entryCell, actionCell);
+  return row;
+}
+
 function renderOutputFilter() {
   const filteredEntries = getFilteredOutputEntries();
   const uris = filteredEntries.map(entry => entry.uri);
   const value = uris.join("\n");
   const summary = outputFilterSummaryText();
 
-  dom.outputFilterText.value = value;
-  dom.outputFilterText.hidden = uris.length === 0;
-  dom.outputFilterEmpty.hidden = uris.length > 0;
+  dom.outputTableBody.replaceChildren();
+  for (const entry of filteredEntries) dom.outputTableBody.append(renderOutputTableRow(entry));
+  dom.outputTableWrap.hidden = filteredEntries.length === 0;
+  dom.outputFilterEmpty.hidden = filteredEntries.length > 0;
   dom.outputFilterEmpty.textContent = filteredResultEmptyText();
   dom.outputFilterCount.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([value]).size)}`;
   dom.outputFilterSummary.textContent = summary;
