@@ -1,4 +1,6 @@
+import jsQR from "jsqr";
 import { invoke } from "@tauri-apps/api/core";
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { detectSubscriptionInput } from "./core/subscription-import/index.ts";
 import { convertSourcesInWorker } from "./core/worker-client.ts";
@@ -309,7 +311,15 @@ function getElement<T extends HTMLElement>(id: string): T {
 
 const dom = {
   urls: getElement<HTMLTextAreaElement>("subscription-urls"),
+  importClipboardButton: getElement<HTMLButtonElement>("import-clipboard-button"),
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
+  importQrButton: getElement<HTMLButtonElement>("import-qr-button"),
+  qrScannerDialog: getElement<HTMLDialogElement>("qr-scanner-dialog"),
+  qrScannerVideo: getElement<HTMLVideoElement>("qr-scanner-video"),
+  qrScannerStatus: getElement<HTMLParagraphElement>("qr-scanner-status"),
+  qrScannerClose: getElement<HTMLButtonElement>("qr-scanner-close"),
+  qrScannerCancel: getElement<HTMLButtonElement>("qr-scanner-cancel"),
+  qrScannerRetry: getElement<HTMLButtonElement>("qr-scanner-retry"),
   workspace: getElement<HTMLElement>("workspace"),
   panelResizers: Array.from(document.querySelectorAll<HTMLElement>(".panel-resizer")),
   validation: getElement<HTMLDivElement>("validation-message"),
@@ -395,6 +405,10 @@ let completedSources = 0;
 let fetchRunId = 0;
 const activeFetchRequests = new Set<string>();
 let toastTimer: number | undefined;
+let qrCameraStream: MediaStream | null = null;
+let qrScanFrame: number | null = null;
+let qrScanCanvas: HTMLCanvasElement | null = null;
+let qrLastScanAt = 0;
 
 function setValidation(message = "", warning = false) {
   dom.validation.textContent = message;
@@ -602,31 +616,163 @@ function readImportInput(): DetectedImportInput | null {
   return detected;
 }
 
-// 文件只作为文本来源，后续仍走同一套智能识别逻辑。
+function replaceInputContent(content: string): boolean {
+  if (!content.trim()) return false;
+  if (new Blob([content]).size > MAX_BATCH_INPUT_BYTES) {
+    showToast("导入内容超过 64 MiB 上限", true);
+    return false;
+  }
+  dom.urls.value = content;
+  setValidation();
+  return true;
+}
+
+async function importClipboard() {
+  if (running) return;
+  try {
+    const content = (await readText()).trim();
+    if (!content) {
+      showToast("剪贴板为空", true);
+      return;
+    }
+    if (replaceInputContent(content)) showToast("已读取剪贴板内容");
+  } catch {
+    showToast("读取剪贴板失败，请检查剪贴板权限", true);
+  }
+}
+
+// Android 智能识别窗口一次导入一个文本文件，并用文件内容替换输入框。
 async function importFile() {
   if (running) return;
   try {
-    const selected = await open({ multiple: true, directory: false });
-    if (!selected) return;
-    const paths = Array.isArray(selected) ? selected : [selected];
-    const imported = await Promise.all(paths.map(path => invoke<string>("read_text_file", { path })));
-    const nonempty = imported.filter(content => content.trim());
-    if (!nonempty.length) {
+    const selected = await open({ multiple: false, directory: false });
+    if (typeof selected !== "string") return;
+    const content = await invoke<string>("read_text_file", { path: selected });
+    if (!content.trim()) {
       showToast("文件内容为空", true);
       return;
     }
-    const appended = nonempty.join("\n---\n");
-    const combined = [dom.urls.value.trimEnd(), appended].filter(Boolean).join("\n---\n");
-    if (new Blob([combined]).size > 64 * 1024 * 1024) {
-      showToast("追加后输入超过 64 MiB 上限", true);
-      return;
-    }
-    dom.urls.value = combined;
-    setValidation();
-    showToast(`已追加 ${nonempty.length} 个文件`);
+    if (replaceInputContent(content)) showToast("已读取文件内容");
   } catch (error) {
     showToast(failureFrom(error).message || "读取文件失败", true);
   }
+}
+
+function qrCameraErrorMessage(error: unknown): string {
+  const name = typeof error === "object" && error !== null && "name" in error
+    ? String((error as { name?: unknown }).name)
+    : "";
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return "相机权限未获允许。请检查应用相机权限后重试。";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "没有找到可用相机。";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "相机正被其他应用占用，请关闭其他应用后重试。";
+  }
+  return "无法启动相机，请检查相机连接和权限。";
+}
+
+function releaseQrCamera() {
+  if (qrScanFrame !== null) {
+    cancelAnimationFrame(qrScanFrame);
+    qrScanFrame = null;
+  }
+  qrCameraStream?.getTracks().forEach(track => track.stop());
+  qrCameraStream = null;
+  dom.qrScannerVideo.pause();
+  dom.qrScannerVideo.srcObject = null;
+  qrScanCanvas = null;
+  qrLastScanAt = 0;
+}
+
+function closeQrScanner() {
+  releaseQrCamera();
+  if (dom.qrScannerDialog.open) dom.qrScannerDialog.close();
+}
+
+function showQrCameraError(message: string) {
+  releaseQrCamera();
+  dom.qrScannerStatus.textContent = message;
+  dom.qrScannerRetry.hidden = false;
+}
+
+function scanQrVideoFrame(now: number) {
+  qrScanFrame = null;
+  if (!dom.qrScannerDialog.open || !qrCameraStream) return;
+  qrScanFrame = requestAnimationFrame(scanQrVideoFrame);
+  if (now - qrLastScanAt < 180 || dom.qrScannerVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+  qrLastScanAt = now;
+
+  try {
+    const video = dom.qrScannerVideo;
+    const maxSide = 1280;
+    const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+    const width = Math.max(1, Math.round(video.videoWidth * scale));
+    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    qrScanCanvas ??= document.createElement("canvas");
+    if (qrScanCanvas.width !== width || qrScanCanvas.height !== height) {
+      qrScanCanvas.width = width;
+      qrScanCanvas.height = height;
+    }
+    const context = qrScanCanvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("无法创建二维码扫描画布");
+    context.drawImage(video, 0, 0, width, height);
+    const image = context.getImageData(0, 0, width, height);
+    const result = jsQR(image.data, width, height, { inversionAttempts: "attemptBoth" });
+    const content = result?.data.trim();
+    if (!content) return;
+
+    closeQrScanner();
+    if (replaceInputContent(content)) showToast("已读取二维码内容");
+    else showToast("二维码内容为空", true);
+  } catch {
+    showQrCameraError("读取相机画面失败，请关闭后重试。");
+  }
+}
+
+async function requestQrCamera() {
+  releaseQrCamera();
+  dom.qrScannerStatus.textContent = "正在启动相机…";
+  dom.qrScannerRetry.hidden = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    });
+    if (!dom.qrScannerDialog.open) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    qrCameraStream = stream;
+    dom.qrScannerVideo.srcObject = stream;
+    await dom.qrScannerVideo.play();
+    if (!dom.qrScannerDialog.open) {
+      releaseQrCamera();
+      return;
+    }
+    dom.qrScannerStatus.textContent = "请将二维码放入取景框";
+    qrScanFrame = requestAnimationFrame(scanQrVideoFrame);
+  } catch (error) {
+    if (dom.qrScannerDialog.open) showQrCameraError(qrCameraErrorMessage(error));
+    else releaseQrCamera();
+  }
+}
+
+async function importQrCode() {
+  if (running || dom.qrScannerDialog.open) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showToast("当前运行环境不支持相机扫码", true);
+    return;
+  }
+  dom.qrScannerRetry.hidden = true;
+  dom.qrScannerDialog.showModal();
+  void requestQrCamera();
 }
 
 function resolveMaxRedirects(): number {
@@ -708,7 +854,9 @@ function setBusy(busy: boolean) {
   running = busy;
   dom.convertButton.disabled = false;
   dom.urls.disabled = busy;
+  dom.importClipboardButton.disabled = busy;
   dom.importFileButton.disabled = busy;
+  dom.importQrButton.disabled = busy;
   dom.userAgentSelect.disabled = busy;
   dom.customUserAgent.disabled = busy;
   dom.fetchConcurrency.disabled = busy;
@@ -1568,7 +1716,16 @@ function bindEvents() {
     else void startConversion();
   });
   dom.clearLogButton.addEventListener("click", clearLog);
+  dom.importClipboardButton.addEventListener("click", () => void importClipboard());
   dom.importFileButton.addEventListener("click", () => void importFile());
+  dom.importQrButton.addEventListener("click", () => void importQrCode());
+  dom.qrScannerClose.addEventListener("click", closeQrScanner);
+  dom.qrScannerCancel.addEventListener("click", closeQrScanner);
+  dom.qrScannerRetry.addEventListener("click", () => void requestQrCamera());
+  dom.qrScannerDialog.addEventListener("close", releaseQrCamera);
+  dom.qrScannerDialog.addEventListener("click", event => {
+    if (event.target === dom.qrScannerDialog) closeQrScanner();
+  });
   syncFetchConcurrencyInput();
   dom.fetchConcurrencyMode.addEventListener("change", () => {
     syncFetchConcurrencyInput();

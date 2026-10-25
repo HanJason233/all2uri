@@ -661,6 +661,7 @@ fn read_text_file(path: String) -> Result<String, FetchFailure> {
 pub fn run() {
     tauri::Builder::default()
         .manage(FetchCancellationRegistry::default())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             fetch_subscription,

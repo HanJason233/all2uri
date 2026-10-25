@@ -22,11 +22,6 @@
               </div>
             </div>
 
-            <div class="field-heading">
-              <div class="inline-actions">
-                <button class="text-button" id="import-file-button" type="button">导入文件</button>
-              </div>
-            </div>
             <div class="textarea-wrap">
               <textarea
                 id="subscription-urls"
@@ -37,6 +32,12 @@
                 autocomplete="off"
                 placeholder="https://example.com/api/v1/client/subscribe?token=...&#10;vless://uuid@example.com:443#节点&#10;Clash YAML / sing-box / Xray JSON"
               ></textarea>
+            </div>
+
+            <div class="input-source-actions" role="group" aria-label="输入来源">
+              <button class="secondary-button" id="import-clipboard-button" type="button">剪贴板</button>
+              <button class="secondary-button" id="import-file-button" type="button">文件</button>
+              <button class="secondary-button" id="import-qr-button" type="button">二维码</button>
             </div>
 
             <div class="validation-message" id="validation-message" hidden></div>
@@ -274,6 +275,27 @@
         <footer class="output-rule-dialog-actions">
           <button class="secondary-button" id="output-filter-dialog-cancel" type="button">取消</button>
           <button class="primary-button compact" id="output-filter-dialog-save" type="button">应用筛选</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog class="output-rule-dialog qr-scanner-dialog" id="qr-scanner-dialog" aria-labelledby="qr-scanner-title">
+      <div class="output-rule-dialog-content qr-scanner-content">
+        <header class="output-rule-dialog-header qr-scanner-header">
+          <div>
+            <h2 id="qr-scanner-title">扫描二维码</h2>
+            <p>允许相机访问后，将二维码放入取景框。</p>
+          </div>
+          <button class="output-rule-dialog-close" id="qr-scanner-close" type="button" aria-label="关闭扫码">×</button>
+        </header>
+        <div class="qr-scanner-preview">
+          <video id="qr-scanner-video" autoplay muted playsinline aria-label="相机预览"></video>
+          <div class="qr-scanner-frame" aria-hidden="true"></div>
+        </div>
+        <p class="qr-scanner-status" id="qr-scanner-status" role="status" aria-live="polite">正在启动相机…</p>
+        <footer class="qr-scanner-actions">
+          <button class="secondary-button" id="qr-scanner-retry" type="button" hidden>重试相机</button>
+          <button class="secondary-button" id="qr-scanner-cancel" type="button">取消</button>
         </footer>
       </div>
     </dialog>

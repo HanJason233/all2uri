@@ -271,35 +271,6 @@ body.resizing-panels {
   color: var(--text);
 }
 
-.field-label {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.field-heading {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.field-heading .field-label {
-  margin-bottom: 0;
-}
-
-.inline-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 12px;
-  align-items: center;
-}
-
 .text-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -319,6 +290,20 @@ body.resizing-panels {
   flex: 1;
   min-height: 0;
   resize: none;
+}
+
+.input-source-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.input-source-actions .secondary-button {
+  min-height: 32px;
+  padding: 0 8px;
+  font-size: 11px;
+  border-radius: 8px;
 }
 
 .url-input,
@@ -1169,6 +1154,72 @@ label.settings-row {
   padding: 0 13px;
   font-size: 11px;
   border-radius: 8px;
+}
+
+.qr-scanner-content {
+  gap: 0;
+}
+
+.qr-scanner-preview {
+  position: relative;
+  flex: 0 0 auto;
+  aspect-ratio: 4 / 3;
+  margin: 18px 22px 0;
+  overflow: hidden;
+  background: #070b10;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.qr-scanner-preview video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.qr-scanner-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(68%, 260px);
+  aspect-ratio: 1;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.28);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.qr-scanner-status {
+  min-height: 40px;
+  margin: 0;
+  padding: 12px 22px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.qr-scanner-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.qr-scanner-actions .secondary-button {
+  min-height: 34px;
+  padding: 0 13px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+
+.qr-scanner-actions .secondary-button[hidden] {
+  display: none;
 }
 
 .output-rule-options {
