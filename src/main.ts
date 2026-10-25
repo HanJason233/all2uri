@@ -71,10 +71,9 @@ interface SourceResult {
 const MIN_FETCH_CONCURRENCY = 1;
 const MAX_FETCH_CONCURRENCY = 20;
 const MAX_FETCH_CONCURRENCY_PERCENT = 100;
-const MIN_RESPONSE_MIB = 1;
-const MAX_RESPONSE_MIB = 64;
 const MAX_REDIRECTS = 50;
 const MAX_BATCH_INPUT_BYTES = 64 * 1024 * 1024;
+const MIN_REMOTE_BATCH_BYTES = 1024 * 1024;
 type FetchConcurrencyMode = "fixed" | "percent";
 
 interface FetchConcurrencySetting {
@@ -318,7 +317,6 @@ const dom = {
   customUserAgent: getElement<HTMLInputElement>("custom-user-agent"),
   fetchConcurrency: getElement<HTMLInputElement>("fetch-concurrency"),
   fetchConcurrencyMode: getElement<HTMLSelectElement>("fetch-concurrency-mode"),
-  maxResponseMib: getElement<HTMLInputElement>("max-response-mib"),
   maxRedirects: getElement<HTMLInputElement>("max-redirects"),
   regionLookupMethods: getElement<HTMLDivElement>("region-lookup-methods"),
   geoIpDatabaseName: getElement<HTMLSpanElement>("geoip-database-name"),
@@ -681,22 +679,14 @@ async function importFile() {
   }
 }
 
-function resolveRequestLimits(): { maxResponseBytes: number; maxRedirects: number } {
-  const maxResponseMib = dom.maxResponseMib.valueAsNumber;
-  if (!Number.isInteger(maxResponseMib) || maxResponseMib < MIN_RESPONSE_MIB || maxResponseMib > MAX_RESPONSE_MIB) {
-    setValidation(`响应上限必须是 ${MIN_RESPONSE_MIB} 到 ${MAX_RESPONSE_MIB} MiB 之间的整数。`);
-    dom.maxResponseMib.focus();
-    throw new ConversionError("invalid_response_limit", "响应上限设置无效。");
-  }
-
+function resolveMaxRedirects(): number {
   const maxRedirects = dom.maxRedirects.valueAsNumber;
   if (!Number.isInteger(maxRedirects) || maxRedirects < 0 || maxRedirects > MAX_REDIRECTS) {
     setValidation(`最大重定向必须是 0 到 ${MAX_REDIRECTS} 之间的整数。`);
     dom.maxRedirects.focus();
     throw new ConversionError("invalid_redirect_limit", "重定向设置无效。");
   }
-
-  return { maxResponseBytes: maxResponseMib * 1024 * 1024, maxRedirects };
+  return maxRedirects;
 }
 
 function resolveFetchConcurrencySetting(): FetchConcurrencySetting {
@@ -773,7 +763,6 @@ function setBusy(busy: boolean) {
   dom.customUserAgent.disabled = busy;
   dom.fetchConcurrency.disabled = busy;
   dom.fetchConcurrencyMode.disabled = busy;
-  dom.maxResponseMib.disabled = busy;
   dom.maxRedirects.disabled = busy;
   dom.deduplicateOutput.disabled = busy;
   dom.includeLossyOutput.disabled = busy;
@@ -1271,7 +1260,7 @@ async function probeSubscription(content: string, sourceId: string, signal?: Abo
 async function fetchSubscriptionWithFallback(
   url: string,
   userAgent: string | null,
-  requestLimits: { maxResponseBytes: number; maxRedirects: number },
+  maxRedirects: number,
   sourceId: string,
   requestId: string,
   signal: AbortSignal,
@@ -1293,8 +1282,7 @@ async function fetchSubscriptionWithFallback(
         requestId: activeRequestId,
         skipCertificateVerification: shouldSkipCertificateVerification(),
         allowLocalNetwork: shouldAllowLocalNetwork(),
-        maxResponseBytes: requestLimits.maxResponseBytes,
-        maxRedirects: requestLimits.maxRedirects,
+        maxRedirects,
       });
     } finally {
       signal.removeEventListener("abort", cancelRequest);
@@ -1335,13 +1323,13 @@ async function startConversion() {
   let userAgent: string | null = null;
   let fetchConcurrency = MIN_FETCH_CONCURRENCY;
   let fetchConcurrencySetting: FetchConcurrencySetting | null = null;
-  let requestLimits = { maxResponseBytes: MIN_RESPONSE_MIB * 1024 * 1024, maxRedirects: 0 };
+  let maxRedirects = 0;
   if (input.urls.length > 0) {
     try {
       userAgent = resolveUserAgent();
       fetchConcurrencySetting = resolveFetchConcurrencySetting();
       fetchConcurrency = resolveFetchConcurrency(fetchConcurrencySetting, input.urls.length);
-      requestLimits = resolveRequestLimits();
+      maxRedirects = resolveMaxRedirects();
     } catch (error) {
       showToast(failureFrom(error).message, true);
       return;
@@ -1397,17 +1385,7 @@ async function startConversion() {
   const remoteOffset = hasLocal ? 1 : 0;
   const totalSources = input.urls.length + remoteOffset;
   const remainingBatchBytes = Math.max(0, MAX_BATCH_INPUT_BYTES - localBytes);
-  const canFetchRemote = input.urls.length === 0 || remainingBatchBytes >= MIN_RESPONSE_MIB * 1024 * 1024;
-  const configuredResponseLimit = requestLimits.maxResponseBytes;
-  const configuredFetchConcurrency = fetchConcurrency;
-  if (canFetchRemote && input.urls.length > 0) {
-    const effectiveResponseLimit = Math.min(requestLimits.maxResponseBytes, remainingBatchBytes);
-    requestLimits = { ...requestLimits, maxResponseBytes: effectiveResponseLimit };
-    fetchConcurrency = Math.min(
-      fetchConcurrency,
-      Math.max(1, Math.floor(remainingBatchBytes / effectiveResponseLimit)),
-    );
-  }
+  const canFetchRemote = input.urls.length === 0 || remainingBatchBytes >= MIN_REMOTE_BATCH_BYTES;
   sourceResults = [];
   if (hasLocal) {
     sourceResults.push({
@@ -1448,8 +1426,6 @@ async function startConversion() {
       source.errorMessage = "Local input leaves less than 1 MiB of the 64 MiB conversion limit.";
     }
     appendLog("本地输入已达到 64 MiB 上限，远程订阅未发起请求。", true);
-  } else if (requestLimits.maxResponseBytes < configuredResponseLimit || fetchConcurrency < configuredFetchConcurrency) {
-    appendLog(`为控制合并输入大小，单个响应上限调整为 ${formatBytes(requestLimits.maxResponseBytes)}，并发调整为 ${fetchConcurrency}。`);
   }
 
   outputUris = [];
@@ -1476,7 +1452,7 @@ async function startConversion() {
       const fetched = await fetchSubscriptionWithFallback(
         url,
         userAgent,
-        requestLimits,
+        maxRedirects,
         source.sourceId,
         `${fetchRunId}:${source.sourceId}`,
         runController.signal,
@@ -1697,7 +1673,7 @@ function bindEvents() {
   }
   dom.detailBackdrop.addEventListener("click", () => closeDetail());
 
-  for (const input of [dom.fetchConcurrency, dom.maxResponseMib, dom.maxRedirects]) {
+  for (const input of [dom.fetchConcurrency, dom.maxRedirects]) {
     input.addEventListener("input", () => {
       if (!dom.validation.hidden) setValidation();
     });

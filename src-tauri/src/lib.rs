@@ -22,9 +22,6 @@ use url::Url;
 
 mod region_lookup;
 
-const DEFAULT_MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
-const MIN_RESPONSE_BYTES: usize = 1024 * 1024;
-const MAX_RESPONSE_BYTES_LIMIT: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_REDIRECTS: usize = 10;
 const MAX_REDIRECTS_LIMIT: usize = 50;
 const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
@@ -61,7 +58,6 @@ struct FetchFailure {
 struct RequestOptions {
     skip_certificate_verification: bool,
     allow_local_network: bool,
-    max_response_bytes: usize,
     max_redirects: usize,
 }
 
@@ -175,7 +171,6 @@ impl Default for RequestOptions {
         Self {
             skip_certificate_verification: false,
             allow_local_network: false,
-            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
             max_redirects: DEFAULT_MAX_REDIRECTS,
         }
     }
@@ -183,12 +178,6 @@ impl Default for RequestOptions {
 
 impl RequestOptions {
     fn validate(self) -> Result<Self, FetchFailure> {
-        if !(MIN_RESPONSE_BYTES..=MAX_RESPONSE_BYTES_LIMIT).contains(&self.max_response_bytes) {
-            return Err(FetchFailure::new(
-                "invalid_response_limit",
-                "响应上限必须在 1 到 64 MiB 之间。",
-            ));
-        }
         if self.max_redirects > MAX_REDIRECTS_LIMIT {
             return Err(FetchFailure::new(
                 "invalid_redirect_limit",
@@ -483,38 +472,15 @@ fn should_retry_with_next_user_agent(status: StatusCode) -> bool {
     matches!(status.as_u16(), 400 | 403 | 406 | 415)
 }
 
-async fn read_limited_response(
+async fn read_response(
     mut response: Response,
-    max_response_bytes: usize,
     cancellation: &FetchCancellation,
 ) -> Result<Vec<u8>, FetchFailure> {
-    let limit_mib = max_response_bytes / (1024 * 1024);
-    if response
-        .content_length()
-        .is_some_and(|length| length > max_response_bytes as u64)
-    {
-        return Err(FetchFailure::new(
-            "response_too_large",
-            format!("订阅响应超过 {limit_mib} MiB 限制。"),
-        ));
-    }
-
-    let mut body = Vec::with_capacity(
-        response
-            .content_length()
-            .unwrap_or(0)
-            .min(max_response_bytes as u64) as usize,
-    );
+    let mut body = Vec::new();
     loop {
         let chunk = cancellable(cancellation, response.chunk()).await?
             .map_err(|error| network_failure(&error))?;
         let Some(chunk) = chunk else { break };
-        if body.len().saturating_add(chunk.len()) > max_response_bytes {
-            return Err(FetchFailure::new(
-                "response_too_large",
-                format!("订阅响应超过 {limit_mib} MiB 限制。"),
-            ));
-        }
         body.extend_from_slice(&chunk);
     }
     Ok(body)
@@ -559,7 +525,7 @@ async fn fetch_subscription_inner_cancellable(
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
             let final_url = sanitized_display_url(response.url());
-            let body = read_limited_response(response, options.max_response_bytes, cancellation).await?;
+            let body = read_response(response, cancellation).await?;
 
             if body.is_empty() {
                 if index + 1 < agent_count {
@@ -602,14 +568,12 @@ async fn fetch_subscription(
     request_id: Option<String>,
     skip_certificate_verification: Option<bool>,
     allow_local_network: Option<bool>,
-    max_response_bytes: Option<usize>,
     max_redirects: Option<usize>,
     cancellations: tauri::State<'_, FetchCancellationRegistry>,
 ) -> Result<FetchedSubscription, FetchFailure> {
     let options = RequestOptions {
         skip_certificate_verification: skip_certificate_verification.unwrap_or(false),
         allow_local_network: allow_local_network.unwrap_or(false),
-        max_response_bytes: max_response_bytes.unwrap_or(DEFAULT_MAX_RESPONSE_BYTES),
         max_redirects: max_redirects.unwrap_or(DEFAULT_MAX_REDIRECTS),
     };
     let registered = request_id
@@ -918,18 +882,9 @@ mod tests {
     }
 
     #[test]
-    fn validates_request_limits() {
+    fn validates_request_options() {
         let defaults = RequestOptions::default().validate().unwrap();
-        assert_eq!(defaults.max_response_bytes, DEFAULT_MAX_RESPONSE_BYTES);
         assert_eq!(defaults.max_redirects, DEFAULT_MAX_REDIRECTS);
-
-        let too_small = RequestOptions {
-            max_response_bytes: MIN_RESPONSE_BYTES - 1,
-            ..RequestOptions::default()
-        }
-        .validate()
-        .unwrap_err();
-        assert_eq!(too_small.code, "invalid_response_limit");
 
         let too_many_redirects = RequestOptions {
             max_redirects: MAX_REDIRECTS_LIMIT + 1,
@@ -986,35 +941,6 @@ mod tests {
         assert_eq!(result.content, "vless://node@example.com:443");
         assert_eq!(result.used_user_agent, "TestClient/1.0");
         assert_eq!(result.bytes, 28);
-    }
-
-    #[tokio::test]
-    async fn honors_custom_response_limit() {
-        static BODY: [u8; MIN_RESPONSE_BYTES + 1] = [b'a'; MIN_RESPONSE_BYTES + 1];
-        let url = serve_once(&BODY, "text/plain").await;
-        let failure = fetch_subscription_inner(
-            &url,
-            Some("TestClient/1.0"),
-            RequestOptions {
-                max_response_bytes: MIN_RESPONSE_BYTES,
-                allow_local_network: true,
-                ..RequestOptions::default()
-            },
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(failure.code, "response_too_large");
-    }
-
-    #[tokio::test]
-    async fn rejects_oversized_response() {
-        static BODY: [u8; DEFAULT_MAX_RESPONSE_BYTES + 1] = [b'a'; DEFAULT_MAX_RESPONSE_BYTES + 1];
-        let url = serve_once(&BODY, "text/plain").await;
-        let failure =
-            fetch_subscription_inner(&url, Some("TestClient/1.0"), request_options(false))
-                .await
-                .unwrap_err();
-        assert_eq!(failure.code, "response_too_large");
     }
 
     #[test]
