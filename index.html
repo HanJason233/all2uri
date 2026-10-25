@@ -175,24 +175,39 @@
                 <strong>筛选</strong>
                 <p id="output-filter-summary">全部节点</p>
               </div>
-              <button class="secondary-button" id="output-filter-button" type="button" aria-haspopup="dialog">
-                设置筛选
-              </button>
+              <div class="output-filter-actions">
+                <button class="secondary-button" id="output-column-reset-button" type="button" title="恢复初始列宽">
+                  初始化列宽
+                </button>
+                <button class="secondary-button" id="output-filter-button" type="button" aria-haspopup="dialog">
+                  设置筛选
+                </button>
+              </div>
             </div>
             <div class="output-filter-result">
               <div class="output-filter-result-heading">
                 <span id="output-filter-count">0 个节点 · 0 B</span>
               </div>
               <div class="output-table-wrap" id="output-table-wrap">
-                <table class="output-table">
+                <table class="output-table" id="output-table">
+                  <colgroup>
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col class="output-table-filler" />
+                  </colgroup>
                   <thead>
                     <tr>
-                      <th scope="col">名称</th>
-                      <th scope="col">协议</th>
-                      <th scope="col">入口 IP</th>
-                      <th scope="col">入口地区</th>
-                      <th scope="col">入口类型</th>
-                      <th scope="col">操作</th>
+                      <th scope="col">名称<span class="output-column-resizer" data-column-index="0" role="separator" aria-orientation="vertical" aria-label="调整名称列宽" tabindex="0"></span></th>
+                      <th scope="col">协议<span class="output-column-resizer" data-column-index="1" role="separator" aria-orientation="vertical" aria-label="调整协议列宽" tabindex="0"></span></th>
+                      <th scope="col">入口 IP<span class="output-column-resizer" data-column-index="2" role="separator" aria-orientation="vertical" aria-label="调整入口 IP 列宽" tabindex="0"></span></th>
+                      <th scope="col">入口地区<span class="output-column-resizer" data-column-index="3" role="separator" aria-orientation="vertical" aria-label="调整入口地区列宽" tabindex="0"></span></th>
+                      <th scope="col">入口类型<span class="output-column-resizer" data-column-index="4" role="separator" aria-orientation="vertical" aria-label="调整入口类型列宽" tabindex="0"></span></th>
+                      <th scope="col">操作<span class="output-column-resizer" data-column-index="5" role="separator" aria-orientation="vertical" aria-label="调整操作列宽" tabindex="0"></span></th>
+                      <th class="output-table-filler" aria-hidden="true"></th>
                     </tr>
                   </thead>
                   <tbody id="output-table-body"></tbody>

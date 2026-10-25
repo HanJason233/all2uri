@@ -830,6 +830,13 @@ label.settings-row {
   border-radius: 2px;
 }
 
+.output-filter-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+}
+
 .output-filter-result {
   display: flex;
   flex: 1;
@@ -870,15 +877,15 @@ label.settings-row {
 
 .output-table {
   width: 100%;
-  min-width: 560px;
+  min-width: 0;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .output-table th,
 .output-table td {
-  padding: 8px 9px;
+  padding: 9px 10px;
   text-align: left;
 }
 
@@ -887,7 +894,7 @@ label.settings-row {
   top: 0;
   z-index: 1;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
   background: var(--surface-raised);
@@ -909,12 +916,56 @@ label.settings-row {
   background: var(--surface-soft);
 }
 
-.output-table th:nth-child(1) { width: 128px; }
-.output-table th:nth-child(2) { width: 72px; }
-.output-table th:nth-child(3) { width: 152px; }
-.output-table th:nth-child(4) { width: 82px; }
-.output-table th:nth-child(5) { width: 62px; }
-.output-table th:nth-child(6) { width: 64px; }
+.output-table th.output-table-filler {
+  z-index: 0;
+  padding: 0;
+}
+
+.output-table td.output-table-filler {
+  padding: 0;
+}
+
+.output-column-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 2;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.output-column-resizer::after {
+  position: absolute;
+  top: 20%;
+  right: 4px;
+  bottom: 20%;
+  width: 1px;
+  background: var(--border-strong);
+  content: "";
+  transition: width 120ms ease, background-color 120ms ease;
+}
+
+.output-column-resizer:hover::after,
+.output-column-resizer:focus-visible::after,
+.output-column-resizer.is-active::after {
+  right: 3px;
+  width: 2px;
+  background: var(--accent);
+}
+
+.output-column-resizer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+body.resizing-output-columns,
+body.resizing-output-columns * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
 
 .output-table-primary,
 .output-table-truncate {
@@ -926,21 +977,22 @@ label.settings-row {
 
 .output-table-primary {
   color: var(--text);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .output-table-ip {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .output-entry-badge {
   display: inline-block;
-  padding: 2px 5px;
+  padding: 3px 6px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 11px;
   white-space: nowrap;
   background: var(--surface-soft);
   border: 1px solid var(--border);
@@ -962,11 +1014,11 @@ label.settings-row {
 }
 
 .output-row-copy {
-  min-width: 40px;
-  min-height: 26px;
-  padding: 2px 6px;
+  min-width: 46px;
+  min-height: 30px;
+  padding: 4px 8px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
   background: transparent;
   border: 1px solid var(--border);

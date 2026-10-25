@@ -101,8 +101,13 @@ const OUTPUT_PROTOCOLS: Array<{ value: ProxyProtocol; label: string }> = [
   { value: "masque", label: "MASQUE" },
 ];
 const OUTPUT_FILTER_STORAGE_KEY = "all2uri.output-filter";
+const OUTPUT_COLUMN_WIDTHS_STORAGE_KEY = "all2uri.output-column-widths";
+const LEGACY_OUTPUT_COLUMN_RATIOS_STORAGE_KEY = "all2uri.output-column-ratios";
 const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
+const OUTPUT_COLUMN_DEFAULT_WIDTHS = [135, 76, 160, 90, 74, 65];
+const OUTPUT_COLUMN_DEFAULT_TOTAL = OUTPUT_COLUMN_DEFAULT_WIDTHS.reduce((total, width) => total + width, 0);
+const OUTPUT_COLUMN_MIN_WIDTH = 20;
 const USER_AGENT_PRESETS: Record<string, string> = {
   nekobox: "NekoBox/Android/1.4.2 (Prefer ClashMeta Format)",
   "sing-box": "sing-box/1.15.0",
@@ -175,11 +180,59 @@ function loadOutputFilter(): OutputFilter {
   }
 }
 
+function defaultOutputColumnWidths(): number[] {
+  const targetWidth = Math.max(OUTPUT_COLUMN_DEFAULT_TOTAL, dom.outputTableWrap.clientWidth);
+  const widths = OUTPUT_COLUMN_DEFAULT_WIDTHS.map(width => Math.round(width * targetWidth / OUTPUT_COLUMN_DEFAULT_TOTAL));
+  widths[widths.length - 1] += targetWidth - widths.reduce((total, width) => total + width, 0);
+  return widths;
+}
+
+function loadOutputColumnWidths(): number[] {
+  try {
+    const storedWidths = window.localStorage.getItem(OUTPUT_COLUMN_WIDTHS_STORAGE_KEY);
+    if (storedWidths !== null) {
+      const parsedWidths: unknown = JSON.parse(storedWidths);
+      if (
+        Array.isArray(parsedWidths)
+        && parsedWidths.length === OUTPUT_COLUMN_DEFAULT_WIDTHS.length
+        && parsedWidths.every(value => typeof value === "number" && Number.isFinite(value) && value > 0)
+      ) return (parsedWidths as number[]).map(width => Math.max(OUTPUT_COLUMN_MIN_WIDTH, width));
+    }
+
+    // 兼容上一版按比例保存的列宽设置，并转换为像素宽度。
+    const storedRatios = window.localStorage.getItem(LEGACY_OUTPUT_COLUMN_RATIOS_STORAGE_KEY);
+    if (storedRatios === null) return defaultOutputColumnWidths();
+    const parsed: unknown = JSON.parse(storedRatios);
+    if (
+      !Array.isArray(parsed)
+      || parsed.length !== OUTPUT_COLUMN_DEFAULT_WIDTHS.length
+      || !parsed.every(value => typeof value === "number" && Number.isFinite(value) && value > 0)
+    ) return defaultOutputColumnWidths();
+    const ratios = parsed as number[];
+    const total = ratios.reduce((sum, ratio) => sum + ratio, 0);
+    if (total <= 0) return defaultOutputColumnWidths();
+    const targetWidth = Math.max(OUTPUT_COLUMN_DEFAULT_TOTAL, dom.outputTableWrap.clientWidth);
+    const widths = ratios.map(ratio => Math.round(ratio / total * targetWidth));
+    widths[widths.length - 1] += targetWidth - widths.reduce((sum, width) => sum + width, 0);
+    return widths.map(width => Math.max(OUTPUT_COLUMN_MIN_WIDTH, width));
+  } catch {
+    return defaultOutputColumnWidths();
+  }
+}
+
 function saveOutputFilter() {
   try {
     window.localStorage.setItem(OUTPUT_FILTER_STORAGE_KEY, JSON.stringify(outputFilter));
   } catch {
     // 筛选条件仍可在当前会话中使用；存储不可用时忽略持久化错误。
+  }
+}
+
+function saveOutputColumnWidths() {
+  try {
+    window.localStorage.setItem(OUTPUT_COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(outputColumnWidths));
+  } catch {
+    // 列宽仍可在当前会话中调整；存储不可用时忽略持久化错误。
   }
 }
 
@@ -353,9 +406,11 @@ const dom = {
   logList: getElement<HTMLDivElement>("log-list"),
   clearLogButton: getElement<HTMLButtonElement>("clear-log-button"),
   outputFilterButton: getElement<HTMLButtonElement>("output-filter-button"),
+  outputColumnResetButton: getElement<HTMLButtonElement>("output-column-reset-button"),
   outputFilterSummary: getElement<HTMLParagraphElement>("output-filter-summary"),
   outputFilterCount: getElement<HTMLSpanElement>("output-filter-count"),
   outputTableWrap: getElement<HTMLDivElement>("output-table-wrap"),
+  outputTable: getElement<HTMLTableElement>("output-table"),
   outputTableBody: getElement<HTMLTableSectionElement>("output-table-body"),
   outputFilterDialog: getElement<HTMLDialogElement>("output-filter-dialog"),
   outputFilterDialogClose: getElement<HTMLButtonElement>("output-filter-dialog-close"),
@@ -384,12 +439,22 @@ interface ResizeState {
   startRatios: number[];
 }
 
+interface OutputColumnResizeState {
+  columnIndex: number;
+  pointerId: number;
+  startX: number;
+  startWidth: number;
+  handle: HTMLElement;
+}
+
 const MIN_PANEL_WIDTH = 200;
 const SPLITTER_WIDTH = 13;
 const DEFAULT_PANEL_RATIOS = [0.25, 0.34, 0.41];
 
 let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
+let outputColumnWidths = loadOutputColumnWidths();
+let outputColumnResizeState: OutputColumnResizeState | null = null;
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
 let outputEntries: CategorizedOutput[] = [];
@@ -473,6 +538,102 @@ function adjustPanelRatios(index: number, delta: number) {
 function resetPanelRatios() {
   panelRatios = clampPanelRatios([...DEFAULT_PANEL_RATIOS], availableWorkspaceWidth());
   applyPanelRatios();
+}
+
+function applyOutputColumnWidths() {
+  const columns = Array.from(dom.outputTable.querySelectorAll<HTMLTableColElement>("colgroup col"));
+  if (columns.length !== outputColumnWidths.length + 1) return;
+
+  outputColumnWidths.forEach((width, index) => {
+    columns[index].style.width = `${width}px`;
+  });
+  columns[columns.length - 1].style.width = "auto";
+
+  const columnsWidth = outputColumnWidths.reduce((total, width) => total + width, 0);
+  dom.outputTable.style.width = `${Math.max(dom.outputTableWrap.clientWidth, columnsWidth)}px`;
+  dom.outputTable.querySelectorAll<HTMLElement>(".output-column-resizer").forEach(handle => {
+    const columnIndex = Number(handle.dataset.columnIndex);
+    if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= outputColumnWidths.length) return;
+    handle.setAttribute("aria-valuenow", `${Math.round(outputColumnWidths[columnIndex])}`);
+    handle.setAttribute("aria-valuemin", `${OUTPUT_COLUMN_MIN_WIDTH}`);
+    // 分隔条只报告可访问性范围，不限制实际拖动宽度。
+    handle.setAttribute("aria-valuemax", `${Math.max(10_000, Math.round(outputColumnWidths[columnIndex]))}`);
+  });
+}
+
+function resizeOutputColumn(columnIndex: number, width: number) {
+  if (columnIndex < 0 || columnIndex >= outputColumnWidths.length) return;
+  outputColumnWidths[columnIndex] = Math.max(OUTPUT_COLUMN_MIN_WIDTH, width);
+  applyOutputColumnWidths();
+}
+
+function resetOutputColumnWidths() {
+  outputColumnWidths = defaultOutputColumnWidths();
+  applyOutputColumnWidths();
+  saveOutputColumnWidths();
+}
+
+function bindOutputTableColumnResizers() {
+  const handles = Array.from(dom.outputTable.querySelectorAll<HTMLElement>(".output-column-resizer"));
+  handles.forEach(handle => {
+    const columnIndex = Number(handle.dataset.columnIndex);
+
+    handle.addEventListener("pointerdown", event => {
+      if (event.button !== 0) return;
+      if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= outputColumnWidths.length) return;
+      event.preventDefault();
+      outputColumnResizeState = {
+        columnIndex,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidth: outputColumnWidths[columnIndex],
+        handle,
+      };
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch {
+        // 后续窗口级指针事件仍可继续处理拖动。
+      }
+      handle.classList.add("is-active");
+      document.body.classList.add("resizing-output-columns");
+    });
+
+    window.addEventListener("pointermove", event => {
+      const state = outputColumnResizeState;
+      if (!state || state.handle !== handle || event.pointerId !== state.pointerId) return;
+      resizeOutputColumn(state.columnIndex, state.startWidth + event.clientX - state.startX);
+    });
+
+    const endResize = (event: PointerEvent) => {
+      const state = outputColumnResizeState;
+      if (!state || state.handle !== handle || event.pointerId !== state.pointerId) return;
+      try {
+        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      } catch {
+        // 释放失败时不影响结束逻辑。
+      }
+      handle.classList.remove("is-active");
+      document.body.classList.remove("resizing-output-columns");
+      outputColumnResizeState = null;
+      saveOutputColumnWidths();
+    };
+    handle.addEventListener("pointerup", endResize);
+    handle.addEventListener("pointercancel", endResize);
+    window.addEventListener("pointerup", endResize);
+    window.addEventListener("pointercancel", endResize);
+
+    handle.addEventListener("keydown", event => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const step = event.shiftKey ? 20 : 8;
+      const delta = event.key === "ArrowLeft" ? -step : step;
+      resizeOutputColumn(columnIndex, outputColumnWidths[columnIndex] + delta);
+      saveOutputColumnWidths();
+    });
+  });
+
+  applyOutputColumnWidths();
+  new ResizeObserver(applyOutputColumnWidths).observe(dom.outputTableWrap);
 }
 
 function bindPanelResizers() {
@@ -1200,7 +1361,11 @@ function renderOutputTableRow(entry: CategorizedOutput): HTMLTableRowElement {
   copy.addEventListener("click", () => void copyUris([entry.uri], `节点“${name.textContent}”`));
   actionCell.append(copy);
 
-  row.append(nameCell, protocolCell, entryIpCell, regionCell, entryCell, actionCell);
+  const fillerCell = document.createElement("td");
+  fillerCell.className = "output-table-filler";
+  fillerCell.setAttribute("aria-hidden", "true");
+
+  row.append(nameCell, protocolCell, entryIpCell, regionCell, entryCell, actionCell, fillerCell);
   return row;
 }
 
@@ -1833,6 +1998,7 @@ function bindEvents() {
     if (!dom.validation.hidden) setValidation();
   });
   dom.outputFilterButton.addEventListener("click", openOutputFilterDialog);
+  dom.outputColumnResetButton.addEventListener("click", resetOutputColumnWidths);
   dom.outputFilterDialogClose.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogSave.addEventListener("click", saveOutputFilterDialog);
@@ -1879,6 +2045,7 @@ function bindEvents() {
   renderRegionLookupSettings();
   renderOutputFilter();
   bindPanelResizers();
+  bindOutputTableColumnResizers();
   applyPanelRatios();
 }
 
