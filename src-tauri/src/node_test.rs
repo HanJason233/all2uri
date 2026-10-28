@@ -18,6 +18,10 @@ use tauri::Manager;
 use tokio::{net::TcpStream, sync::Semaphore, task::JoinSet};
 
 const DEFAULT_TEST_TIMEOUT_MS: u64 = 10_000;
+const DEFAULT_TCPING_TIMEOUT_MS: u64 = 2_000;
+const DEFAULT_204_WARMUP_TIMEOUT_MS: u64 = 4_000;
+const DEFAULT_204_MEASUREMENT_TIMEOUT_MS: u64 = 1_000;
+const DEFAULT_UNLOCK_SERVICE_TIMEOUT_MS: u64 = 3_000;
 const DEFAULT_BANDWIDTH_DURATION_MS: u64 = 3_000;
 const BANDWIDTH_WARMUP_MS: u64 = 1_000;
 const DEFAULT_204_URL: &str = "https://www.google.com/generate_204";
@@ -1141,15 +1145,26 @@ pub async fn run_node_test(
     app: tauri::AppHandle,
     request: NodeTestRequest,
 ) -> Result<NodeTestResponse, String> {
-    let timeout_ms = request.timeout_ms.unwrap_or(DEFAULT_TEST_TIMEOUT_MS).clamp(1_000, 120_000);
+    // 缺少前端参数时，后端回退值也与设置页默认值保持一致。
+    let default_timeout_ms = match request.kind.as_str() {
+        "tcping" => DEFAULT_TCPING_TIMEOUT_MS,
+        "url204" => DEFAULT_204_MEASUREMENT_TIMEOUT_MS,
+        "unlock" => DEFAULT_UNLOCK_SERVICE_TIMEOUT_MS,
+        _ => DEFAULT_TEST_TIMEOUT_MS,
+    };
+    let timeout_ms = request.timeout_ms.unwrap_or(default_timeout_ms).clamp(1_000, 120_000);
     if request.kind == "tcping" {
         return Ok(tcping(&request.server, request.port, timeout_ms).await);
     }
     if request.outbound.is_none() && request.endpoint.is_none() {
         return Ok(NodeTestResponse::error("当前节点没有可用的 sing-box 配置"));
     }
-    let warmup_timeout_ms = request.warmup_timeout_ms.unwrap_or(timeout_ms).clamp(1_000, 120_000);
-    let measurement_timeout_ms = request.measurement_timeout_ms.unwrap_or(timeout_ms).clamp(1_000, 120_000);
+    let warmup_timeout_ms = request.warmup_timeout_ms.unwrap_or_else(|| {
+        if request.kind == "url204" { DEFAULT_204_WARMUP_TIMEOUT_MS } else { timeout_ms }
+    }).clamp(1_000, 120_000);
+    let measurement_timeout_ms = request.measurement_timeout_ms.unwrap_or_else(|| {
+        if request.kind == "url204" { DEFAULT_204_MEASUREMENT_TIMEOUT_MS } else { timeout_ms }
+    }).clamp(1_000, 120_000);
     let bandwidth_duration_ms = request.duration_ms.unwrap_or(DEFAULT_BANDWIDTH_DURATION_MS).clamp(1_000, 60_000);
     let client_timeout_ms = if request.kind == "bandwidth" {
         timeout_ms.max(bandwidth_duration_ms + BANDWIDTH_WARMUP_MS + 5_000)

@@ -107,6 +107,7 @@ const DEFAULT_204_URL = "https://www.google.com/generate_204";
 const DEFAULT_204_BACKUP_URL = "https://www.gstatic.com/generate_204";
 const DEFAULT_BANDWIDTH_URL = "https://speed.cloudflare.com/__down?bytes=25000000";
 const SETTINGS_KEY = "all2uri.node-test-settings";
+const SETTINGS_SCHEMA_VERSION = 2;
 const TEST_KINDS: NodeTestKind[] = ["tcping", "url204", "bandwidth", "linkType", "unlock"];
 const UNLOCK_SERVICES: UnlockServiceDefinition[] = [
   { id: "google_cn", name: "Google \u9001\u4e2d\u68c0\u6d4b", category: "network" },
@@ -163,33 +164,33 @@ function concurrencyMode(value: unknown): ConcurrencyMode {
 
 function defaultSettings(): TestSettings {
   return {
-    tcpingTimeoutMs: 1_000,
+    tcpingTimeoutMs: 2_000,
     tcpingConcurrencyMode: "percent",
     tcpingConcurrency: 30,
-    tcpingAutoDeleteTimeoutNodes: false,
+    tcpingAutoDeleteTimeoutNodes: true,
     url204: DEFAULT_204_URL,
     url204Backup: DEFAULT_204_BACKUP_URL,
     url204WarmupTimeoutMs: 4_000,
     url204MeasurementTimeoutMs: 1_000,
     url204ConcurrencyMode: "percent",
     url204Concurrency: 30,
-    url204AutoDeleteTimeoutNodes: false,
+    url204AutoDeleteTimeoutNodes: true,
     bandwidthUrl: DEFAULT_BANDWIDTH_URL,
     bandwidthDurationMs: 3_000,
     bandwidthStreams: 4,
     bandwidthConcurrencyMode: "percent",
-    bandwidthConcurrency: 3,
-    bandwidthAutoDeleteLowSpeedNodes: false,
-    bandwidthAutoDeleteThresholdMbps: 10,
-    linkTypeConcurrencyMode: "count",
-    linkTypeConcurrency: 3,
+    bandwidthConcurrency: 10,
+    bandwidthAutoDeleteLowSpeedNodes: true,
+    bandwidthAutoDeleteThresholdMbps: 1,
+    linkTypeConcurrencyMode: "percent",
+    linkTypeConcurrency: 30,
     linkTypeAcceptDirect: true,
     linkTypeAcceptRelay: true,
     linkTypeAcceptCdnRelay: true,
-    unlockConcurrencyMode: "count",
-    unlockConcurrency: 3,
+    unlockConcurrencyMode: "percent",
+    unlockConcurrency: 30,
     unlockRequestConcurrency: 4,
-    unlockServiceTimeoutMs: 12_000,
+    unlockServiceTimeoutMs: 3_000,
     unlockTestIds: [...DEFAULT_UNLOCK_IDS],
   };
 }
@@ -200,6 +201,7 @@ function loadSettings(): TestSettings {
     const raw = window.localStorage.getItem(SETTINGS_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<TestSettings> & Record<string, unknown>;
+    const storedSettingsVersion = typeof parsed.schemaVersion === "number" ? parsed.schemaVersion : 1;
     const legacyTimeout = parsed.timeoutMs;
     const legacyConcurrency = parsed.concurrency;
     const selectedIds = Array.isArray(parsed.unlockTestIds)
@@ -209,7 +211,29 @@ function loadSettings(): TestSettings {
       && LEGACY_DEFAULT_UNLOCK_IDS.every(id => selectedIds.includes(id))
       ? [...DEFAULT_UNLOCK_IDS]
       : selectedIds.length ? selectedIds : [...DEFAULT_UNLOCK_IDS];
-    return {
+    if (storedSettingsVersion < SETTINGS_SCHEMA_VERSION) {
+      // 仅迁移与旧默认值完全相同的字段，保留用户主动修改过的参数。
+      if (parsed.tcpingTimeoutMs === 1_000) parsed.tcpingTimeoutMs = fallback.tcpingTimeoutMs;
+      if (parsed.tcpingAutoDeleteTimeoutNodes === false) parsed.tcpingAutoDeleteTimeoutNodes = true;
+      if (parsed.url204AutoDeleteTimeoutNodes === false) parsed.url204AutoDeleteTimeoutNodes = true;
+      if (parsed.bandwidthConcurrencyMode === "percent" && parsed.bandwidthConcurrency === 3) {
+        parsed.bandwidthConcurrency = fallback.bandwidthConcurrency;
+      }
+      if (parsed.bandwidthAutoDeleteLowSpeedNodes === false) parsed.bandwidthAutoDeleteLowSpeedNodes = true;
+      if (parsed.bandwidthAutoDeleteThresholdMbps === 10) parsed.bandwidthAutoDeleteThresholdMbps = fallback.bandwidthAutoDeleteThresholdMbps;
+      if (parsed.linkTypeConcurrencyMode === "count" && parsed.linkTypeConcurrency === 3) {
+        parsed.linkTypeConcurrencyMode = fallback.linkTypeConcurrencyMode;
+        parsed.linkTypeConcurrency = fallback.linkTypeConcurrency;
+      }
+      if (parsed.unlockConcurrencyMode === "count" && parsed.unlockConcurrency === 3) {
+        parsed.unlockConcurrencyMode = fallback.unlockConcurrencyMode;
+        parsed.unlockConcurrency = fallback.unlockConcurrency;
+      }
+      if (parsed.unlockServiceTimeoutMs === 12_000) parsed.unlockServiceTimeoutMs = fallback.unlockServiceTimeoutMs;
+    }
+    const savedBandwidthConcurrencyMode = concurrencyMode(parsed.bandwidthConcurrencyMode ?? fallback.bandwidthConcurrencyMode);
+    const savedBandwidthConcurrencyMax = savedBandwidthConcurrencyMode === "percent" ? 100 : 3;
+    const settings: TestSettings = {
       tcpingTimeoutMs: clampNumber(String(parsed.tcpingTimeoutMs ?? legacyTimeout ?? fallback.tcpingTimeoutMs), fallback.tcpingTimeoutMs, 500, 120_000),
       tcpingConcurrencyMode: concurrencyMode(parsed.tcpingConcurrencyMode ?? fallback.tcpingConcurrencyMode),
       tcpingConcurrency: clampNumber(String(parsed.tcpingConcurrency ?? legacyConcurrency ?? fallback.tcpingConcurrency), fallback.tcpingConcurrency, 1, 512),
@@ -224,8 +248,8 @@ function loadSettings(): TestSettings {
       bandwidthUrl: typeof parsed.bandwidthUrl === "string" && parsed.bandwidthUrl.trim() ? parsed.bandwidthUrl.trim() : fallback.bandwidthUrl,
       bandwidthDurationMs: clampNumber(String(parsed.bandwidthDurationMs ?? fallback.bandwidthDurationMs), fallback.bandwidthDurationMs, 1_000, 60_000),
       bandwidthStreams: clampNumber(String(parsed.bandwidthStreams ?? fallback.bandwidthStreams), fallback.bandwidthStreams, 1, 8),
-      bandwidthConcurrencyMode: concurrencyMode(parsed.bandwidthConcurrencyMode ?? fallback.bandwidthConcurrencyMode),
-      bandwidthConcurrency: clampNumber(String(parsed.bandwidthConcurrency ?? legacyConcurrency ?? fallback.bandwidthConcurrency), fallback.bandwidthConcurrency, 1, 3),
+      bandwidthConcurrencyMode: savedBandwidthConcurrencyMode,
+      bandwidthConcurrency: clampNumber(String(parsed.bandwidthConcurrency ?? legacyConcurrency ?? fallback.bandwidthConcurrency), fallback.bandwidthConcurrency, 1, savedBandwidthConcurrencyMax),
       bandwidthAutoDeleteLowSpeedNodes: typeof parsed.bandwidthAutoDeleteLowSpeedNodes === "boolean" ? parsed.bandwidthAutoDeleteLowSpeedNodes : fallback.bandwidthAutoDeleteLowSpeedNodes,
       bandwidthAutoDeleteThresholdMbps: clampNumber(String(parsed.bandwidthAutoDeleteThresholdMbps ?? fallback.bandwidthAutoDeleteThresholdMbps), fallback.bandwidthAutoDeleteThresholdMbps, 1, 10_000),
       linkTypeConcurrencyMode: concurrencyMode(parsed.linkTypeConcurrencyMode ?? fallback.linkTypeConcurrencyMode),
@@ -239,6 +263,8 @@ function loadSettings(): TestSettings {
       unlockServiceTimeoutMs: clampNumber(String(parsed.unlockServiceTimeoutMs ?? fallback.unlockServiceTimeoutMs), fallback.unlockServiceTimeoutMs, 1_000, 120_000),
       unlockTestIds,
     };
+    if (storedSettingsVersion < SETTINGS_SCHEMA_VERSION) saveSettings(settings);
+    return settings;
   } catch {
     return fallback;
   }
@@ -246,7 +272,7 @@ function loadSettings(): TestSettings {
 
 function saveSettings(settings: TestSettings): void {
   try {
-    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, schemaVersion: SETTINGS_SCHEMA_VERSION }));
   } catch {
     // Current session can continue without persistence.
   }
@@ -395,12 +421,20 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
   const unlockServices = byId<HTMLDivElement>("node-test-unlock-services");
   const status = byId<HTMLSpanElement>("node-test-status");
 
+  const syncBandwidthConcurrencyRange = () => {
+    const max = bandwidthMode.value === "percent" ? 100 : 3;
+    bandwidthConcurrency.max = String(max);
+    const value = Number(bandwidthConcurrency.value);
+    if (Number.isFinite(value) && value > max) bandwidthConcurrency.value = String(max);
+  };
+
   const readSettings = (): TestSettings => {
+    const selectedBandwidthConcurrencyMode = concurrencyMode(bandwidthMode.value);
     const selectedIds = Array.from(unlockServices.querySelectorAll<HTMLInputElement>("input[data-service-id]:checked"))
       .map(input => input.dataset.serviceId ?? "")
       .filter(Boolean);
     return {
-      tcpingTimeoutMs: clampNumber(tcpingTimeout.value, 1_000, 500, 120_000),
+      tcpingTimeoutMs: clampNumber(tcpingTimeout.value, 2_000, 500, 120_000),
       tcpingConcurrencyMode: concurrencyMode(tcpingMode.value),
       tcpingConcurrency: clampNumber(tcpingConcurrency.value, 30, 1, 512),
       tcpingAutoDeleteTimeoutNodes: tcpingAutoDelete.checked,
@@ -414,19 +448,19 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
       bandwidthUrl: bandwidthUrl.value.trim() || DEFAULT_BANDWIDTH_URL,
       bandwidthDurationMs: clampNumber(bandwidthDuration.value, 3_000, 1_000, 60_000),
       bandwidthStreams: clampNumber(bandwidthStreams.value, 4, 1, 8),
-      bandwidthConcurrencyMode: concurrencyMode(bandwidthMode.value),
-      bandwidthConcurrency: clampNumber(bandwidthConcurrency.value, 3, 1, 3),
+      bandwidthConcurrencyMode: selectedBandwidthConcurrencyMode,
+      bandwidthConcurrency: clampNumber(bandwidthConcurrency.value, 10, 1, selectedBandwidthConcurrencyMode === "percent" ? 100 : 3),
       bandwidthAutoDeleteLowSpeedNodes: bandwidthAutoDelete.checked,
-      bandwidthAutoDeleteThresholdMbps: clampNumber(bandwidthThreshold.value, 10, 1, 10_000),
+      bandwidthAutoDeleteThresholdMbps: clampNumber(bandwidthThreshold.value, 1, 1, 10_000),
       linkTypeConcurrencyMode: concurrencyMode(linkTypeMode.value),
-      linkTypeConcurrency: clampNumber(linkTypeConcurrency.value, 3, 1, 512),
+      linkTypeConcurrency: clampNumber(linkTypeConcurrency.value, 30, 1, 512),
       linkTypeAcceptDirect: linkTypeAcceptDirect.checked,
       linkTypeAcceptRelay: linkTypeAcceptRelay.checked,
       linkTypeAcceptCdnRelay: linkTypeAcceptCdn.checked,
       unlockConcurrencyMode: concurrencyMode(unlockMode.value),
-      unlockConcurrency: clampNumber(unlockConcurrency.value, 3, 1, 512),
+      unlockConcurrency: clampNumber(unlockConcurrency.value, 30, 1, 512),
       unlockRequestConcurrency: clampNumber(unlockRequestConcurrency.value, 4, 1, 12),
-      unlockServiceTimeoutMs: clampNumber(unlockServiceTimeout.value, 12_000, 1_000, 120_000),
+      unlockServiceTimeoutMs: clampNumber(unlockServiceTimeout.value, 3_000, 1_000, 120_000),
       unlockTestIds: selectedIds.length ? selectedIds : [...DEFAULT_UNLOCK_IDS],
     };
   };
@@ -484,6 +518,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     bandwidthStreams.value = String(settings.bandwidthStreams);
     bandwidthConcurrency.value = String(settings.bandwidthConcurrency);
     bandwidthMode.value = settings.bandwidthConcurrencyMode;
+    syncBandwidthConcurrencyRange();
     bandwidthAutoDelete.checked = settings.bandwidthAutoDeleteLowSpeedNodes;
     bandwidthThreshold.value = String(settings.bandwidthAutoDeleteThresholdMbps);
     linkTypeConcurrency.value = String(settings.linkTypeConcurrency);
@@ -499,6 +534,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
   };
 
   applySettings(loadSettings());
+  bandwidthMode.addEventListener("change", syncBandwidthConcurrencyRange);
   for (const input of [
     tcpingTimeout, tcpingConcurrency, tcpingMode, tcpingAutoDelete,
     url204, url204Backup, url204Warmup, url204Measurement, url204Concurrency, url204Mode, url204AutoDelete,

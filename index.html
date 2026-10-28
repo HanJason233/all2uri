@@ -252,7 +252,7 @@
               <label class="settings-row">
                 <span>超时</span>
                 <span class="settings-value">
-                  <input id="node-test-tcping-timeout" class="settings-control settings-number" type="number" min="500" max="120000" step="500" value="1000" inputmode="numeric" />
+                  <input id="node-test-tcping-timeout" class="settings-control settings-number" type="number" min="500" max="120000" step="500" value="2000" inputmode="numeric" />
                   <span>ms</span>
                 </span>
               </label>
@@ -268,7 +268,7 @@
               </label>
               <label class="settings-row">
                 <span>自动删除超时节点</span>
-                <input class="settings-checkbox" id="node-test-tcping-auto-delete" type="checkbox" />
+                <input class="settings-checkbox" id="node-test-tcping-auto-delete" type="checkbox" checked />
               </label>
             </details>
 
@@ -312,7 +312,7 @@
               </label>
               <label class="settings-row">
                 <span>自动删除超时节点</span>
-                <input class="settings-checkbox" id="node-test-url204-auto-delete" type="checkbox" />
+                <input class="settings-checkbox" id="node-test-url204-auto-delete" type="checkbox" checked />
               </label>
             </details>
 
@@ -341,7 +341,7 @@
               <label class="settings-row">
                 <span>节点并发</span>
                 <span class="settings-value settings-value-concurrency">
-                  <input id="node-test-bandwidth-concurrency" class="settings-control settings-number" type="number" min="1" max="3" step="1" value="3" inputmode="numeric" />
+                  <input id="node-test-bandwidth-concurrency" class="settings-control settings-number" type="number" min="1" max="100" step="1" value="10" inputmode="numeric" />
                   <select id="node-test-bandwidth-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="????????">
                     <option value="percent" selected>%</option>
                     <option value="count">个</option>
@@ -350,12 +350,12 @@
               </label>
               <label class="settings-row">
                 <span>自动删除低速节点</span>
-                <input class="settings-checkbox" id="node-test-bandwidth-auto-delete" type="checkbox" />
+                <input class="settings-checkbox" id="node-test-bandwidth-auto-delete" type="checkbox" checked />
               </label>
               <label class="settings-row">
                 <span>删除阈值</span>
                 <span class="settings-value">
-                  <input id="node-test-bandwidth-threshold" class="settings-control settings-number" type="number" min="1" step="1" value="10" inputmode="numeric" />
+                  <input id="node-test-bandwidth-threshold" class="settings-control settings-number" type="number" min="1" step="1" value="1" inputmode="numeric" />
                   <span>Mbps</span>
                 </span>
               </label>
@@ -366,10 +366,10 @@
               <label class="settings-row">
                 <span>并发</span>
                 <span class="settings-value settings-value-concurrency">
-                  <input id="node-test-linktype-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="3" inputmode="numeric" />
+                  <input id="node-test-linktype-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="30" inputmode="numeric" />
                   <select id="node-test-linktype-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="??????????">
-                    <option value="percent">%</option>
-                    <option value="count" selected>个</option>
+                    <option value="percent" selected>%</option>
+                    <option value="count">个</option>
                   </select>
                 </span>
               </label>
@@ -392,10 +392,10 @@
               <label class="settings-row">
                 <span>节点并发</span>
                 <span class="settings-value settings-value-concurrency">
-                  <input id="node-test-unlock-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="3" inputmode="numeric" />
+                  <input id="node-test-unlock-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="30" inputmode="numeric" />
                   <select id="node-test-unlock-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="??????????">
-                    <option value="percent">%</option>
-                    <option value="count" selected>个</option>
+                    <option value="percent" selected>%</option>
+                    <option value="count">个</option>
                   </select>
                 </span>
               </label>
@@ -409,7 +409,7 @@
               <label class="settings-row">
                 <span>服务请求超时</span>
                 <span class="settings-value">
-                  <input id="node-test-service-timeout" class="settings-control settings-number" type="number" min="1000" max="120000" step="1000" value="12000" inputmode="numeric" />
+                  <input id="node-test-service-timeout" class="settings-control settings-number" type="number" min="1000" max="120000" step="1000" value="3000" inputmode="numeric" />
                   <span>ms</span>
                 </span>
               </label>
