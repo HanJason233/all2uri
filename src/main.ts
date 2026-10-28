@@ -7,7 +7,15 @@ import { convertSourcesInWorker } from "./core/worker-client.ts";
 import { diagnostic } from "./core/diagnostics/index.ts";
 import type { Diagnostic } from "./core/diagnostics/index.ts";
 import type { ProxyNode, ProxyProtocol } from "./core/model/proxy-node.ts";
-import { initNodeTestUi, refreshNodeTestButton } from "./node-test.ts";
+import {
+  initNodeTestUi,
+  nodeTestResultClass,
+  nodeTestResultText,
+  nodeTestResultTitle,
+  refreshNodeTestButtons,
+  type NodeTestController,
+  type NodeTestKind,
+} from "./node-test.ts";
 import {
   countryCodeFromNodeName,
   countryNameForCode,
@@ -117,7 +125,7 @@ const REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
 const CLOUDFLARE_DETECTION_ENABLED_STORAGE_KEY = "all2uri.cloudflare-detection-enabled";
 const CLOUDFLARE_DETECTION_CONCURRENCY_STORAGE_KEY = "all2uri.cloudflare-detection-concurrency";
-const OUTPUT_COLUMN_DEFAULT_WIDTHS = [42, 84, 180, 180, 72, 100, 88];
+const OUTPUT_COLUMN_DEFAULT_WIDTHS = [42, 84, 180, 180, 72, 100, 88, 72, 72, 88, 90, 100];
 const OUTPUT_COLUMN_DEFAULT_TOTAL = OUTPUT_COLUMN_DEFAULT_WIDTHS.reduce((total, width) => total + width, 0);
 const OUTPUT_COLUMN_MIN_WIDTH = 20;
 const USER_AGENT_PRESETS: Record<string, string> = {
@@ -556,6 +564,8 @@ let outputColumnResizeState: OutputColumnResizeState | null = null;
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
 let outputEntries: CategorizedOutput[] = [];
+let nodeTestController: NodeTestController | null = null;
+const NODE_TEST_KINDS: NodeTestKind[] = ["tcping", "url204", "bandwidth", "linkType", "unlock"];
 let outputFilter = loadOutputFilter();
 let regionLookupMethods = loadRegionLookupMethods();
 let regionLookupConcurrency = loadRegionLookupConcurrency();
@@ -1527,11 +1537,24 @@ function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTabl
   }
   entryCell.append(entryBadge);
 
+  const testCells = NODE_TEST_KINDS.map(kind => {
+    const cell = document.createElement("td");
+    cell.className = "output-table-test";
+    const value = nodeTestController?.getResult(entry.id, kind);
+    const badge = document.createElement("span");
+    badge.className = `node-test-cell ${nodeTestResultClass(value)}`;
+    badge.textContent = nodeTestResultText(value, kind);
+    const title = nodeTestResultTitle(value, kind);
+    if (title) badge.title = title;
+    cell.append(badge);
+    return cell;
+  });
+
   const fillerCell = document.createElement("td");
   fillerCell.className = "output-table-filler";
   fillerCell.setAttribute("aria-hidden", "true");
 
-  row.append(indexCell, protocolCell, nameCell, addressCell, portCell, regionCell, entryCell, fillerCell);
+  row.append(indexCell, protocolCell, nameCell, addressCell, portCell, regionCell, entryCell, ...testCells, fillerCell);
   return row;
 }
 
@@ -1563,7 +1586,7 @@ function renderOutputFilter() {
   dom.cloudflareDetectionConcurrency.disabled = running || cloudflareDetectionState === "running";
   dom.copyButton.disabled = uris.length === 0;
   dom.saveButton.disabled = uris.length === 0;
-  refreshNodeTestButton(uris.length > 0);
+  refreshNodeTestButtons(uris.length > 0);
 }
 
 async function enrichOutputRegions() {
@@ -2272,7 +2295,7 @@ function bindEvents() {
     if (!dom.validation.hidden) setValidation();
   });
 
-  initNodeTestUi({
+  nodeTestController = initNodeTestUi({
     getEntries: () => getFilteredOutputEntries().map(entry => ({
       id: entry.id,
       name: entry.name,
@@ -2281,6 +2304,7 @@ function bindEvents() {
       protocol: entry.protocol,
       node: entry.node,
     })),
+    onResultsChanged: () => renderOutputFilter(),
   });
   renderRegionLookupSettings();
   renderOutputFilter();
