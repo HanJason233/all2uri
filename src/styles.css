@@ -1577,3 +1577,58 @@ body.resizing-output-columns * {
     align-items: flex-end;
   }
 }
+
+/* Detailed node test settings */
+.test-settings-group {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.test-settings-group summary {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  user-select: none;
+}
+
+.test-settings-group[open] summary {
+  margin-bottom: 8px;
+}
+
+.settings-value-concurrency {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.settings-value-concurrency .settings-number {
+  width: 82px;
+}
+
+.settings-value-concurrency .settings-concurrency-mode {
+  width: 58px;
+  min-width: 58px;
+}
+
+.test-service-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 10px;
+  margin-top: 8px;
+}
+
+.test-service-option {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.test-service-option input {
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}

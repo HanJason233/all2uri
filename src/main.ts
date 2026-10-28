@@ -1558,6 +1558,15 @@ function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTabl
   return row;
 }
 
+function removeOutputEntries(entryIds: string[]): void {
+  if (entryIds.length === 0) return;
+  const removed = new Set(entryIds);
+  outputEntries = outputEntries.filter(entry => !removed.has(entry.id));
+  outputUris = outputEntries.map(entry => entry.uri);
+  dom.nodeCount.textContent = String(outputEntries.length);
+  renderOutputFilter();
+}
+
 function renderOutputFilter() {
   const filteredEntries = getFilteredOutputEntries();
   const uris = filteredEntries.map(entry => entry.uri);
@@ -2305,6 +2314,7 @@ function bindEvents() {
       node: entry.node,
     })),
     onResultsChanged: () => renderOutputFilter(),
+    onDeleteEntries: removeOutputEntries,
   });
   renderRegionLookupSettings();
   renderOutputFilter();

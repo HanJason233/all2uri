@@ -7,15 +7,17 @@ use std::{
     net::{IpAddr, TcpListener},
     path::PathBuf,
     process::{Child, Command, Stdio},
+    sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
-use tokio::{net::TcpStream, task::JoinSet};
+use tokio::{net::TcpStream, sync::Semaphore, task::JoinSet};
 
 const DEFAULT_TEST_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_BANDWIDTH_DURATION_MS: u64 = 3_000;
 const BANDWIDTH_WARMUP_MS: u64 = 1_000;
 const DEFAULT_204_URL: &str = "https://www.google.com/generate_204";
+const DEFAULT_204_BACKUP_URL: &str = "https://www.gstatic.com/generate_204";
 const DEFAULT_BANDWIDTH_URL: &str = "https://speed.cloudflare.com/__down?bytes=25000000";
 const EXIT_IP_URL: &str = "https://api.ipify.org";
 
@@ -61,9 +63,19 @@ pub struct NodeTestRequest {
     #[serde(default)]
     url: Option<String>,
     #[serde(default)]
+    backup_url: Option<String>,
+    #[serde(default)]
     timeout_ms: Option<u64>,
     #[serde(default)]
+    warmup_timeout_ms: Option<u64>,
+    #[serde(default)]
+    measurement_timeout_ms: Option<u64>,
+    #[serde(default)]
     duration_ms: Option<u64>,
+    #[serde(default)]
+    unlock_service_ids: Option<Vec<String>>,
+    #[serde(default)]
+    unlock_request_concurrency: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -254,20 +266,43 @@ async fn tcping(server: &str, port: u16, timeout_ms: u64) -> NodeTestResponse {
     }
 }
 
-async fn test_url204(client: &Client, url: &str) -> NodeTestResponse {
+async fn probe_url_once(client: &Client, url: &str, timeout_ms: u64) -> Result<(u16, u64), String> {
     let started = Instant::now();
-    match client.get(url).send().await {
-        Ok(response) => {
-            let status = response.status();
-            let latency = started.elapsed().as_millis().max(1) as u64;
-            let success = status.is_success() || status.is_redirection();
-            NodeTestResponse {
-                success,
-                latency_ms: Some(latency),
-                status_code: Some(status.as_u16()),
-                ..NodeTestResponse::default()
-            }
-        }
+    let response = tokio::time::timeout(
+        Duration::from_millis(timeout_ms.max(1)),
+        client.get(url).send(),
+    )
+    .await
+    .map_err(|_| format!("请求超时（{timeout_ms} ms）"))?
+    .map_err(|error| error.to_string())?;
+    Ok((response.status().as_u16(), started.elapsed().as_millis().max(1) as u64))
+}
+
+async fn test_url204(
+    client: &Client,
+    primary_url: &str,
+    backup_url: Option<&str>,
+    warmup_timeout_ms: u64,
+    measurement_timeout_ms: u64,
+) -> NodeTestResponse {
+    let _ = probe_url_once(client, primary_url, warmup_timeout_ms).await;
+    let primary = probe_url_once(client, primary_url, measurement_timeout_ms).await;
+    let result = match primary {
+        Ok(value) => Ok(value),
+        Err(primary_error) => match backup_url.filter(|value| !value.is_empty()) {
+            Some(backup) => probe_url_once(client, backup, measurement_timeout_ms)
+                .await
+                .map_err(|backup_error| format!("主地址：{primary_error}；备用地址：{backup_error}")),
+            None => Err(primary_error),
+        },
+    };
+    match result {
+        Ok((status, latency)) => NodeTestResponse {
+            success: (200..400).contains(&status),
+            latency_ms: Some(latency),
+            status_code: Some(status),
+            ..NodeTestResponse::default()
+        },
         Err(error) => NodeTestResponse::error(format!("204 请求失败：{error}")),
     }
 }
@@ -458,13 +493,29 @@ async fn probe_unlock(client: Client, probe: &'static UnlockProbe) -> UnlockResu
     }
 }
 
-async fn test_unlock(client: &Client) -> NodeTestResponse {
-    let mut tasks = JoinSet::new();
-    for (index, probe) in UNLOCK_PROBES.iter().enumerate() {
-        let client = client.clone();
-        tasks.spawn(async move { (index, probe_unlock(client, probe).await) });
+async fn test_unlock(
+    client: &Client,
+    service_ids: Option<&[String]>,
+    request_concurrency: usize,
+) -> NodeTestResponse {
+    let probes: Vec<&'static UnlockProbe> = UNLOCK_PROBES
+        .iter()
+        .filter(|probe| service_ids.is_none_or(|ids| ids.is_empty() || ids.iter().any(|id| id == probe.id)))
+        .collect();
+    if probes.is_empty() {
+        return NodeTestResponse::error("未选择任何解锁检测服务");
     }
-    let mut results: Vec<Option<UnlockResult>> = (0..UNLOCK_PROBES.len()).map(|_| None).collect();
+    let permits = Arc::new(Semaphore::new(request_concurrency.clamp(1, probes.len())));
+    let mut tasks = JoinSet::new();
+    for (index, probe) in probes.iter().copied().enumerate() {
+        let client = client.clone();
+        let permits = permits.clone();
+        tasks.spawn(async move {
+            let _permit = permits.acquire_owned().await;
+            (index, probe_unlock(client, probe).await)
+        });
+    }
+    let mut results: Vec<Option<UnlockResult>> = (0..probes.len()).map(|_| None).collect();
     while let Some(result) = tasks.join_next().await {
         match result {
             Ok((index, value)) => results[index] = Some(value),
@@ -491,17 +542,30 @@ pub async fn run_node_test(
     if request.outbound.is_none() && request.endpoint.is_none() {
         return Ok(NodeTestResponse::error("当前节点没有可用的 sing-box 配置"));
     }
+    let warmup_timeout_ms = request.warmup_timeout_ms.unwrap_or(timeout_ms).clamp(1_000, 120_000);
+    let measurement_timeout_ms = request.measurement_timeout_ms.unwrap_or(timeout_ms).clamp(1_000, 120_000);
+    let client_timeout_ms = timeout_ms.max(warmup_timeout_ms).max(measurement_timeout_ms);
     let core = CoreProcess::start(&app, request.outbound, request.endpoint).await?;
-    let client = core.proxy_client(timeout_ms)?;
+    let client = core.proxy_client(client_timeout_ms)?;
     Ok(match request.kind.as_str() {
-        "url204" => test_url204(&client, request.url.as_deref().unwrap_or(DEFAULT_204_URL)).await,
+        "url204" => test_url204(
+            &client,
+            request.url.as_deref().unwrap_or(DEFAULT_204_URL),
+            Some(request.backup_url.as_deref().unwrap_or(DEFAULT_204_BACKUP_URL)),
+            warmup_timeout_ms,
+            measurement_timeout_ms,
+        ).await,
         "bandwidth" => test_bandwidth(
             &client,
             request.url.as_deref().unwrap_or(DEFAULT_BANDWIDTH_URL),
             request.duration_ms.unwrap_or(DEFAULT_BANDWIDTH_DURATION_MS),
         ).await,
         "linkType" => test_link_type(&client, &request.server, request.port).await,
-        "unlock" => test_unlock(&client).await,
+        "unlock" => test_unlock(
+            &client,
+            request.unlock_service_ids.as_deref(),
+            request.unlock_request_concurrency.unwrap_or(4),
+        ).await,
         other => NodeTestResponse::error(format!("未知测试类型：{other}")),
     })
 }
