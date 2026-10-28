@@ -73,43 +73,19 @@
 
             <div class="output-filter-result">
               <div class="output-filter-result-heading">
+                <div class="output-table-views" role="tablist" aria-label="节点检测结果视图">
+                  <button class="output-table-view is-active" data-output-table-view="speed" type="button" role="tab" aria-selected="true">测速</button>
+                  <button class="output-table-view" data-output-table-view="unlock" type="button" role="tab" aria-selected="false">AI / 流媒体</button>
+                  <button class="output-table-view" data-output-table-view="nodes" type="button" role="tab" aria-selected="false">节点信息</button>
+                </div>
                 <span id="output-filter-count">0 个节点 · 0 B</span>
               </div>
               <div class="output-table-wrap" id="output-table-wrap">
                 <table class="output-table" id="output-table">
-                  <colgroup>
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col class="output-table-filler" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th scope="col">序号<span class="output-column-resizer" data-column-index="0" role="separator" aria-orientation="vertical" aria-label="调整序号列宽" tabindex="0"></span></th>
-                      <th scope="col">类型<span class="output-column-resizer" data-column-index="1" role="separator" aria-orientation="vertical" aria-label="调整类型列宽" tabindex="0"></span></th>
-                      <th scope="col">别名<span class="output-column-resizer" data-column-index="2" role="separator" aria-orientation="vertical" aria-label="调整别名列宽" tabindex="0"></span></th>
-                      <th scope="col">地址<span class="output-column-resizer" data-column-index="3" role="separator" aria-orientation="vertical" aria-label="调整地址列宽" tabindex="0"></span></th>
-                      <th scope="col">端口<span class="output-column-resizer" data-column-index="4" role="separator" aria-orientation="vertical" aria-label="调整端口列宽" tabindex="0"></span></th>
-                      <th scope="col">入口地区<span class="output-column-resizer" data-column-index="5" role="separator" aria-orientation="vertical" aria-label="调整入口地区列宽" tabindex="0"></span></th>
-                      <th scope="col">入口类型<span class="output-column-resizer" data-column-index="6" role="separator" aria-orientation="vertical" aria-label="调整入口类型列宽" tabindex="0"></span></th>
-                      <th scope="col">TCPing<span class="output-column-resizer" data-column-index="7" role="separator" aria-orientation="vertical" aria-label="调整 TCPing 列宽" tabindex="0"></span></th>
-                      <th scope="col">204<span class="output-column-resizer" data-column-index="8" role="separator" aria-orientation="vertical" aria-label="调整 204 列宽" tabindex="0"></span></th>
-                      <th scope="col">传输质量<span class="output-column-resizer" data-column-index="9" role="separator" aria-orientation="vertical" aria-label="调整传输质量列宽" tabindex="0"></span></th>
-                      <th scope="col">链路<span class="output-column-resizer" data-column-index="10" role="separator" aria-orientation="vertical" aria-label="调整链路列宽" tabindex="0"></span></th>
-                      <th scope="col">解锁<span class="output-column-resizer" data-column-index="11" role="separator" aria-orientation="vertical" aria-label="调整解锁列宽" tabindex="0"></span></th>
-                      <th class="output-table-filler" aria-hidden="true"></th>
-                    </tr>
-                  </thead>
+                  <colgroup id="output-table-columns"></colgroup>
+                  <thead id="output-table-head"></thead>
                   <tbody id="output-table-body"></tbody>
+                  <tfoot id="output-table-foot"></tfoot>
                 </table>
               </div>
             </div>

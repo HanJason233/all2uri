@@ -20,15 +20,16 @@ export interface NodeTestResultState {
   error?: string;
 }
 
-interface UnlockServiceResult {
+export interface UnlockServiceResult {
   id: string;
   name: string;
   state: string;
   detail: string;
+  ipRisk?: "low" | "high";
   statusCode?: number;
 }
 
-interface NodeTestResponse {
+export interface NodeTestResponse {
   success: boolean;
   latencyMs?: number;
   latencyMinMs?: number;
@@ -48,7 +49,7 @@ interface NodeTestResponse {
   error?: string;
 }
 
-interface UnlockServiceDefinition {
+export interface UnlockServiceDefinition {
   id: string;
   name: string;
   category: "network" | "ai" | "streaming" | "other";
@@ -91,6 +92,7 @@ interface TestSettings {
 
 export interface NodeTestController {
   getResult(entryId: string, kind: NodeTestKind): NodeTestResultState | undefined;
+  getUnlockServices(): UnlockServiceDefinition[];
   isRunning(): boolean;
 }
 
@@ -98,6 +100,7 @@ interface NodeTestUiOptions {
   getEntries: () => NodeTestEntry[];
   onResultsChanged: () => void;
   onDeleteEntries: (entryIds: string[]) => void;
+  onTestStarted: (kind: NodeTestKind) => void;
 }
 
 const DEFAULT_204_URL = "https://www.google.com/generate_204";
@@ -428,7 +431,10 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     };
   };
 
-  const persist = () => saveSettings(readSettings());
+  const persist = () => {
+    saveSettings(readSettings());
+    options.onResultsChanged();
+  };
 
   const renderUnlockServices = (selectedIds: string[]) => {
     unlockServices.replaceChildren();
@@ -519,6 +525,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     if (entries.length === 0) return;
     const settings = readSettings();
     saveSettings(settings);
+    options.onTestStarted(kind);
     const concurrency = kind === "tcping"
       ? effectiveConcurrency(settings.tcpingConcurrencyMode, settings.tcpingConcurrency, entries.length, 32)
       : kind === "url204"
@@ -636,6 +643,9 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
 
   return {
     getResult,
+    getUnlockServices: () => readSettings().unlockTestIds
+      .map(id => UNLOCK_SERVICES.find(service => service.id === id))
+      .filter((service): service is UnlockServiceDefinition => service !== undefined),
     isRunning: () => running,
   };
 }

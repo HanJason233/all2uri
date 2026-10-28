@@ -92,6 +92,8 @@ pub struct UnlockResult {
     state: String,
     detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    ip_risk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     status_code: Option<u16>,
 }
 
@@ -659,6 +661,7 @@ fn unlock_result(
         name: probe.name.to_string(),
         state: state.to_string(),
         detail: detail.into(),
+        ip_risk: None,
         status_code,
     }
 }
@@ -937,8 +940,14 @@ async fn probe_unlock(client: Client, probe: &'static UnlockProbe) -> UnlockResu
             match (web, compliance, ios) {
                 (Ok(web), Ok(compliance), Ok(ios)) => {
                     let country_blocked = contains_any(&compliance.body, &["unsupported_country"]);
-                    let vpn_blocked = json_bool(&ios.body, "vpn").unwrap_or(false)
+                    let vpn_flag = json_bool(&ios.body, "vpn");
+                    let vpn_blocked = vpn_flag.unwrap_or(false)
                         || ios.body.to_ascii_lowercase().contains("\"vpn\":true");
+                    let ip_risk = if vpn_blocked {
+                        Some("high".to_string())
+                    } else {
+                        vpn_flag.map(|_| "low".to_string())
+                    };
                     let challenge = [403, 429, 451].contains(&web.status_code)
                         || contains_any(&web.body, &["cf-mitigated", "attention required", "error code: 1020", "just a moment", "cloudflare ray id"]);
                     let mobile_available = (200..300).contains(&ios.status_code)
@@ -964,7 +973,9 @@ async fn probe_unlock(client: Client, probe: &'static UnlockProbe) -> UnlockResu
                     } else {
                         "ChatGPT 网页端可访问，OpenAI 地区与 IP 检查未返回限制信号"
                     };
-                    Ok(unlock_result(probe, state, detail, Some(web.status_code)))
+                    let mut result = unlock_result(probe, state, detail, Some(web.status_code));
+                    result.ip_risk = ip_risk;
+                    Ok(result)
                 }
                 (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => Err(error),
             }

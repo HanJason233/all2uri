@@ -9,12 +9,10 @@ import type { Diagnostic } from "./core/diagnostics/index.ts";
 import type { ProxyNode, ProxyProtocol } from "./core/model/proxy-node.ts";
 import {
   initNodeTestUi,
-  nodeTestResultClass,
-  nodeTestResultText,
-  nodeTestResultTitle,
   refreshNodeTestButtons,
   type NodeTestController,
   type NodeTestKind,
+  type UnlockServiceDefinition,
 } from "./node-test.ts";
 import {
   countryCodeFromNodeName,
@@ -68,6 +66,17 @@ interface OutputFilter {
   cloudflareEntry: CloudflareEntryFilter;
 }
 
+type OutputTableView = "speed" | "unlock" | "nodes";
+
+interface OutputTableColumn {
+  key: string;
+  label: string;
+  width: number;
+  className?: string;
+  renderCell: (entry: CategorizedOutput, index: number) => HTMLTableCellElement;
+  renderFooter?: (entries: CategorizedOutput[]) => HTMLTableCellElement;
+}
+
 type SourceKind = "local" | "remote";
 
 interface SourceResult {
@@ -118,16 +127,29 @@ const OUTPUT_PROTOCOLS: Array<{ value: ProxyProtocol; label: string }> = [
   { value: "masque", label: "MASQUE" },
 ];
 const OUTPUT_FILTER_STORAGE_KEY = "all2uri.output-filter";
-const OUTPUT_COLUMN_WIDTHS_STORAGE_KEY = "all2uri.output-column-widths";
-const LEGACY_OUTPUT_COLUMN_RATIOS_STORAGE_KEY = "all2uri.output-column-ratios";
+const OUTPUT_COLUMN_WIDTHS_STORAGE_KEY = "all2uri.output-table-column-widths.v2";
 const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
 const REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency";
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
 const CLOUDFLARE_DETECTION_ENABLED_STORAGE_KEY = "all2uri.cloudflare-detection-enabled";
 const CLOUDFLARE_DETECTION_CONCURRENCY_STORAGE_KEY = "all2uri.cloudflare-detection-concurrency";
-const OUTPUT_COLUMN_DEFAULT_WIDTHS = [42, 84, 180, 180, 72, 100, 88, 72, 72, 88, 90, 100];
-const OUTPUT_COLUMN_DEFAULT_TOTAL = OUTPUT_COLUMN_DEFAULT_WIDTHS.reduce((total, width) => total + width, 0);
-const OUTPUT_COLUMN_MIN_WIDTH = 20;
+const OUTPUT_COLUMN_DEFAULT_WIDTHS: Record<string, number> = {
+  index: 64,
+  name: 360,
+  protocol: 100,
+  server: 190,
+  port: 72,
+  region: 105,
+  entry: 92,
+  rtt: 110,
+  http: 120,
+  average: 140,
+  peak: 140,
+  perSecond: 120,
+  linkType: 110,
+  ipRisk: 100,
+};
+const OUTPUT_COLUMN_MIN_WIDTH = 36;
 const USER_AGENT_PRESETS: Record<string, string> = {
   nekobox: "NekoBox/Android/1.4.2 (Prefer ClashMeta Format)",
   "sing-box": "sing-box/1.15.0",
@@ -249,44 +271,21 @@ function loadOutputFilter(): OutputFilter {
   }
 }
 
-function defaultOutputColumnWidths(): number[] {
-  const targetWidth = Math.max(OUTPUT_COLUMN_DEFAULT_TOTAL, dom.outputTableWrap.clientWidth);
-  const widths = OUTPUT_COLUMN_DEFAULT_WIDTHS.map(width => Math.round(width * targetWidth / OUTPUT_COLUMN_DEFAULT_TOTAL));
-  widths[widths.length - 1] += targetWidth - widths.reduce((total, width) => total + width, 0);
-  return widths;
-}
-
-function loadOutputColumnWidths(): number[] {
+function loadOutputColumnWidths(): Record<string, number> {
   try {
     const storedWidths = window.localStorage.getItem(OUTPUT_COLUMN_WIDTHS_STORAGE_KEY);
     if (storedWidths !== null) {
-      const parsedWidths: unknown = JSON.parse(storedWidths);
-      if (
-        Array.isArray(parsedWidths)
-        && parsedWidths.length === OUTPUT_COLUMN_DEFAULT_WIDTHS.length
-        && parsedWidths.every(value => typeof value === "number" && Number.isFinite(value) && value > 0)
-      ) return (parsedWidths as number[]).map(width => Math.max(OUTPUT_COLUMN_MIN_WIDTH, width));
+      const parsed: unknown = JSON.parse(storedWidths);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return Object.fromEntries(Object.entries(parsed)
+          .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0)
+          .map(([key, width]) => [key, Math.max(OUTPUT_COLUMN_MIN_WIDTH, width)]));
+      }
     }
-
-    // 兼容上一版按比例保存的列宽设置，并转换为像素宽度。
-    const storedRatios = window.localStorage.getItem(LEGACY_OUTPUT_COLUMN_RATIOS_STORAGE_KEY);
-    if (storedRatios === null) return defaultOutputColumnWidths();
-    const parsed: unknown = JSON.parse(storedRatios);
-    if (
-      !Array.isArray(parsed)
-      || parsed.length !== OUTPUT_COLUMN_DEFAULT_WIDTHS.length
-      || !parsed.every(value => typeof value === "number" && Number.isFinite(value) && value > 0)
-    ) return defaultOutputColumnWidths();
-    const ratios = parsed as number[];
-    const total = ratios.reduce((sum, ratio) => sum + ratio, 0);
-    if (total <= 0) return defaultOutputColumnWidths();
-    const targetWidth = Math.max(OUTPUT_COLUMN_DEFAULT_TOTAL, dom.outputTableWrap.clientWidth);
-    const widths = ratios.map(ratio => Math.round(ratio / total * targetWidth));
-    widths[widths.length - 1] += targetWidth - widths.reduce((sum, width) => sum + width, 0);
-    return widths.map(width => Math.max(OUTPUT_COLUMN_MIN_WIDTH, width));
   } catch {
-    return defaultOutputColumnWidths();
+    return {};
   }
+  return {};
 }
 
 function saveOutputFilter() {
@@ -514,7 +513,10 @@ const dom = {
   outputFilterCount: getElement<HTMLSpanElement>("output-filter-count"),
   outputTableWrap: getElement<HTMLDivElement>("output-table-wrap"),
   outputTable: getElement<HTMLTableElement>("output-table"),
+  outputTableColumns: getElement<HTMLElement>("output-table-columns"),
+  outputTableHead: getElement<HTMLTableSectionElement>("output-table-head"),
   outputTableBody: getElement<HTMLTableSectionElement>("output-table-body"),
+  outputTableFoot: getElement<HTMLTableSectionElement>("output-table-foot"),
   outputFilterDialog: getElement<HTMLDialogElement>("output-filter-dialog"),
   outputFilterDialogClose: getElement<HTMLButtonElement>("output-filter-dialog-close"),
   outputFilterDialogCancel: getElement<HTMLButtonElement>("output-filter-dialog-cancel"),
@@ -546,7 +548,7 @@ interface ResizeState {
 }
 
 interface OutputColumnResizeState {
-  columnIndex: number;
+  columnKey: string;
   pointerId: number;
   startX: number;
   startWidth: number;
@@ -561,11 +563,12 @@ let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
 let outputColumnWidths = loadOutputColumnWidths();
 let outputColumnResizeState: OutputColumnResizeState | null = null;
+let outputTableView: OutputTableView = "speed";
+let renderedOutputColumns: OutputTableColumn[] = [];
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
 let outputEntries: CategorizedOutput[] = [];
 let nodeTestController: NodeTestController | null = null;
-const NODE_TEST_KINDS: NodeTestKind[] = ["tcping", "url204", "bandwidth", "linkType", "unlock"];
 let outputFilter = loadOutputFilter();
 let regionLookupMethods = loadRegionLookupMethods();
 let regionLookupConcurrency = loadRegionLookupConcurrency();
@@ -654,95 +657,100 @@ function resetPanelRatios() {
 }
 
 function applyOutputColumnWidths() {
-  const columns = Array.from(dom.outputTable.querySelectorAll<HTMLTableColElement>("colgroup col"));
-  if (columns.length !== outputColumnWidths.length + 1) return;
-
-  outputColumnWidths.forEach((width, index) => {
-    columns[index].style.width = `${width}px`;
-  });
-  columns[columns.length - 1].style.width = "auto";
-
-  const columnsWidth = outputColumnWidths.reduce((total, width) => total + width, 0);
+  const columns = Array.from(dom.outputTableColumns.querySelectorAll<HTMLTableColElement>("col[data-column-key]"));
+  let columnsWidth = 0;
+  for (const column of columns) {
+    const key = column.dataset.columnKey;
+    if (!key) continue;
+    const width = outputColumnWidths[key] ?? (Number(column.dataset.defaultWidth) || OUTPUT_COLUMN_MIN_WIDTH);
+    column.style.width = `${width}px`;
+    columnsWidth += width;
+  }
+  const filler = dom.outputTableColumns.querySelector<HTMLTableColElement>("col.output-table-filler");
+  if (filler) filler.style.width = "auto";
   dom.outputTable.style.width = `${Math.max(dom.outputTableWrap.clientWidth, columnsWidth)}px`;
   dom.outputTable.querySelectorAll<HTMLElement>(".output-column-resizer").forEach(handle => {
-    const columnIndex = Number(handle.dataset.columnIndex);
-    if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= outputColumnWidths.length) return;
-    handle.setAttribute("aria-valuenow", `${Math.round(outputColumnWidths[columnIndex])}`);
+    const key = handle.dataset.columnKey;
+    if (!key) return;
+    const width = outputColumnWidths[key] ?? (Number(handle.dataset.defaultWidth) || OUTPUT_COLUMN_MIN_WIDTH);
+    handle.setAttribute("aria-valuenow", `${Math.round(width)}`);
     handle.setAttribute("aria-valuemin", `${OUTPUT_COLUMN_MIN_WIDTH}`);
     // 分隔条只报告可访问性范围，不限制实际拖动宽度。
-    handle.setAttribute("aria-valuemax", `${Math.max(10_000, Math.round(outputColumnWidths[columnIndex]))}`);
+    handle.setAttribute("aria-valuemax", `${Math.max(10_000, Math.round(width))}`);
   });
 }
 
-function resizeOutputColumn(columnIndex: number, width: number) {
-  if (columnIndex < 0 || columnIndex >= outputColumnWidths.length) return;
-  outputColumnWidths[columnIndex] = Math.max(OUTPUT_COLUMN_MIN_WIDTH, width);
+function resizeOutputColumn(columnKey: string, width: number) {
+  if (!renderedOutputColumns.some(column => column.key === columnKey)) return;
+  outputColumnWidths[columnKey] = Math.max(OUTPUT_COLUMN_MIN_WIDTH, width);
   applyOutputColumnWidths();
 }
 
 function resetOutputColumnWidths() {
-  outputColumnWidths = defaultOutputColumnWidths();
+  for (const column of renderedOutputColumns) outputColumnWidths[column.key] = column.width;
   applyOutputColumnWidths();
   saveOutputColumnWidths();
 }
 
 function bindOutputTableColumnResizers() {
-  const handles = Array.from(dom.outputTable.querySelectorAll<HTMLElement>(".output-column-resizer"));
-  handles.forEach(handle => {
-    const columnIndex = Number(handle.dataset.columnIndex);
-
-    handle.addEventListener("pointerdown", event => {
-      if (event.button !== 0) return;
-      if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= outputColumnWidths.length) return;
-      event.preventDefault();
-      outputColumnResizeState = {
-        columnIndex,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startWidth: outputColumnWidths[columnIndex],
-        handle,
-      };
-      try {
-        handle.setPointerCapture(event.pointerId);
-      } catch {
-        // 后续窗口级指针事件仍可继续处理拖动。
-      }
-      handle.classList.add("is-active");
-      document.body.classList.add("resizing-output-columns");
-    });
-
-    window.addEventListener("pointermove", event => {
-      const state = outputColumnResizeState;
-      if (!state || state.handle !== handle || event.pointerId !== state.pointerId) return;
-      resizeOutputColumn(state.columnIndex, state.startWidth + event.clientX - state.startX);
-    });
-
-    const endResize = (event: PointerEvent) => {
-      const state = outputColumnResizeState;
-      if (!state || state.handle !== handle || event.pointerId !== state.pointerId) return;
-      try {
-        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-      } catch {
-        // 释放失败时不影响结束逻辑。
-      }
-      handle.classList.remove("is-active");
-      document.body.classList.remove("resizing-output-columns");
-      outputColumnResizeState = null;
-      saveOutputColumnWidths();
+  dom.outputTable.addEventListener("pointerdown", event => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const handle = target.closest<HTMLElement>(".output-column-resizer");
+    const columnKey = handle?.dataset.columnKey;
+    if (!handle || !columnKey || event.button !== 0) return;
+    event.preventDefault();
+    const defaultWidth = Number(handle.dataset.defaultWidth) || OUTPUT_COLUMN_MIN_WIDTH;
+    outputColumnResizeState = {
+      columnKey,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: outputColumnWidths[columnKey] ?? defaultWidth,
+      handle,
     };
-    handle.addEventListener("pointerup", endResize);
-    handle.addEventListener("pointercancel", endResize);
-    window.addEventListener("pointerup", endResize);
-    window.addEventListener("pointercancel", endResize);
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      // 后续窗口级指针事件仍可继续处理拖动。
+    }
+    handle.classList.add("is-active");
+    document.body.classList.add("resizing-output-columns");
+  });
 
-    handle.addEventListener("keydown", event => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      event.preventDefault();
-      const step = event.shiftKey ? 20 : 8;
-      const delta = event.key === "ArrowLeft" ? -step : step;
-      resizeOutputColumn(columnIndex, outputColumnWidths[columnIndex] + delta);
-      saveOutputColumnWidths();
-    });
+  window.addEventListener("pointermove", event => {
+    const state = outputColumnResizeState;
+    if (!state || event.pointerId !== state.pointerId) return;
+    resizeOutputColumn(state.columnKey, state.startWidth + event.clientX - state.startX);
+  });
+
+  const endResize = (event: PointerEvent) => {
+    const state = outputColumnResizeState;
+    if (!state || event.pointerId !== state.pointerId) return;
+    try {
+      if (state.handle.hasPointerCapture(event.pointerId)) state.handle.releasePointerCapture(event.pointerId);
+    } catch {
+      // 释放失败时不影响结束逻辑。
+    }
+    state.handle.classList.remove("is-active");
+    document.body.classList.remove("resizing-output-columns");
+    outputColumnResizeState = null;
+    saveOutputColumnWidths();
+  };
+  window.addEventListener("pointerup", endResize);
+  window.addEventListener("pointercancel", endResize);
+
+  dom.outputTable.addEventListener("keydown", event => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const handle = target.closest<HTMLElement>(".output-column-resizer");
+    const columnKey = handle?.dataset.columnKey;
+    if (!handle || !columnKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+    event.preventDefault();
+    const defaultWidth = Number(handle.dataset.defaultWidth) || OUTPUT_COLUMN_MIN_WIDTH;
+    const step = event.shiftKey ? 20 : 8;
+    const delta = event.key === "ArrowLeft" ? -step : step;
+    resizeOutputColumn(columnKey, (outputColumnWidths[columnKey] ?? defaultWidth) + delta);
+    saveOutputColumnWidths();
   });
 
   applyOutputColumnWidths();
@@ -1481,81 +1489,382 @@ function saveOutputFilterDialog() {
   dom.outputFilterButton.focus();
 }
 
+function textCell(text: string, className = "", title?: string): HTMLTableCellElement {
+  const cell = document.createElement("td");
+  cell.className = className;
+  cell.textContent = text;
+  if (title) cell.title = title;
+  return cell;
+}
+
+function testCellState(entryId: string, kind: NodeTestKind): { state: string; title: string; result?: NonNullable<ReturnType<NodeTestController["getResult"]>>["result"] } {
+  const value = nodeTestController?.getResult(entryId, kind);
+  if (!value) return { state: "idle", title: "尚未测试" };
+  if (value.state === "running") return { state: "running", title: `${kind} 测试中` };
+  if (value.state === "error") return { state: "error", title: value.error ?? "测试失败" };
+  const result = value.result;
+  if (!result?.success) return { state: "error", title: result?.error ?? "测试失败", result };
+  return { state: "done", title: "", result };
+}
+
+function formatSpeed(mbps: number): string {
+  return mbps < 1 ? `${(mbps * 1_000).toFixed(2)}Kbps` : `${mbps.toFixed(2)}Mbps`;
+}
+
+function measureCell(entryId: string, kind: "tcping" | "url204", valueKey: "latencyMs"): HTMLTableCellElement {
+  const state = testCellState(entryId, kind);
+  const cell = textCell("—", `output-table-result-cell is-${state.state}`);
+  if (state.title) cell.title = state.title;
+  if (state.state === "running") cell.textContent = "测试中";
+  else if (state.state === "error") cell.textContent = "失败";
+  else if (state.result?.[valueKey] !== undefined) {
+    const latency = state.result[valueKey]!;
+    cell.textContent = `${latency}ms`;
+    cell.title = `${kind === "tcping" ? "TCP RTT" : "HTTP 延迟"}：${latency}ms${state.result.statusCode ? ` · HTTP ${state.result.statusCode}` : ""}`;
+    const goodness = Math.max(0, 1 - Math.min(latency, 1_500) / 1_500);
+    cell.style.backgroundColor = `rgba(35, 205, 177, ${0.07 + goodness * 0.32})`;
+  }
+  return cell;
+}
+
+function speedCell(entryId: string, valueKey: "downloadMbps" | "downloadMaxMbps"): HTMLTableCellElement {
+  const state = testCellState(entryId, "bandwidth");
+  const cell = textCell("—", `output-table-result-cell is-${state.state}`);
+  if (state.title) cell.title = state.title;
+  if (state.state === "running") cell.textContent = "测速中";
+  else if (state.state === "error") cell.textContent = "失败";
+  else if (state.result) {
+    const value = state.result[valueKey] ?? (valueKey === "downloadMaxMbps" ? state.result.downloadMbps : undefined);
+    if (value !== undefined) {
+      cell.textContent = formatSpeed(value);
+      cell.title = `${valueKey === "downloadMbps" ? "平均速度" : "最大速度"}：${formatSpeed(value)}`;
+      const strength = Math.min(1, Math.log1p(Math.max(0, value)) / Math.log1p(1_000));
+      cell.style.backgroundColor = `rgba(62, 151, 247, ${0.06 + strength * 0.30})`;
+    }
+  }
+  return cell;
+}
+
+function speedSamplesCell(entryId: string): HTMLTableCellElement {
+  const state = testCellState(entryId, "bandwidth");
+  const cell = document.createElement("td");
+  cell.className = `output-table-result-cell output-table-spark-cell is-${state.state}`;
+  if (state.state === "running") {
+    cell.textContent = "测速中";
+    return cell;
+  }
+  if (state.state === "error") {
+    cell.textContent = "失败";
+    cell.title = state.title;
+    return cell;
+  }
+  const samples = state.result?.downloadSamples ?? [];
+  if (!samples.length) {
+    cell.textContent = "—";
+    cell.title = state.title || "没有逐秒样本";
+    return cell;
+  }
+  const chart = document.createElement("span");
+  chart.className = "speed-sparkline";
+  chart.setAttribute("role", "img");
+  chart.setAttribute("aria-label", "每秒下载速度趋势");
+  const peak = Math.max(...samples.map(sample => sample.mbps), 0.01);
+  for (const sample of samples) {
+    const bar = document.createElement("i");
+    bar.className = "speed-sparkline-bar";
+    bar.style.height = `${Math.max(8, sample.mbps / peak * 100)}%`;
+    chart.append(bar);
+  }
+  cell.title = samples.map(sample => `${sample.durationMs}ms：${formatSpeed(sample.mbps)}`).join("\n");
+  cell.append(chart);
+  return cell;
+}
+
+function linkTypeCell(entryId: string): HTMLTableCellElement {
+  const state = testCellState(entryId, "linkType");
+  const result = state.result;
+  const label = result?.linkType === "direct" ? "直连"
+    : result?.linkType === "cdn-relay" ? "CDN中转"
+      : result?.linkType === "relay" ? "中转" : "—";
+  const cell = textCell(state.state === "running" ? "检测中" : state.state === "error" ? "失败" : label,
+    `output-table-result-cell is-${state.state}`);
+  cell.title = result
+    ? `${label}${result.cdnProvider ? ` · ${result.cdnProvider}` : ""}${result.entryIps?.length ? ` · 入口 ${result.entryIps.join(", ")}` : ""}${result.exitIp ? ` · 出口 ${result.exitIp}` : ""}`
+    : state.title;
+  return cell;
+}
+
+function regionCell(entry: CategorizedOutput): HTMLTableCellElement {
+  const label = entry.countryCode ? countryNameForCode(entry.countryCode) : regionLookupState === "running" ? "查询中" : "未知";
+  return textCell(label, "output-table-text-cell", entry.countryCode ? `${label} (${entry.countryCode})` : label);
+}
+
+function entryTypeCell(entry: CategorizedOutput): HTMLTableCellElement {
+  const cell = document.createElement("td");
+  const badge = document.createElement("span");
+  badge.className = "output-entry-badge";
+  if (!cloudflareDetectionEnabled) {
+    badge.textContent = "未检测";
+  } else if (entry.isCloudflare === true) {
+    badge.textContent = "CF";
+    badge.classList.add("is-cloudflare");
+  } else if (entry.isCloudflare === false) {
+    badge.textContent = "非 CF";
+    badge.classList.add("is-non-cloudflare");
+  } else if (cloudflareDetectionState === "running") {
+    badge.textContent = "检测中";
+  } else {
+    badge.textContent = "—";
+  }
+  cell.append(badge);
+  return cell;
+}
+
+function unlockResultCell(entryId: string, serviceId: string): HTMLTableCellElement {
+  const testState = nodeTestController?.getResult(entryId, "unlock");
+  const cell = document.createElement("td");
+  cell.className = "output-table-unlock-cell";
+  if (!testState) {
+    cell.classList.add("is-idle");
+    cell.textContent = "—";
+    return cell;
+  }
+  if (testState.state === "running") {
+    cell.classList.add("is-running");
+    cell.textContent = "检测中";
+    return cell;
+  }
+  if (testState.state === "error" || !testState.result?.success) {
+    cell.classList.add("is-blocked");
+    cell.textContent = "失败";
+    cell.title = testState.error ?? testState.result?.error ?? "解锁检测失败";
+    return cell;
+  }
+  const item = testState.result.unlock?.find(result => result.id === serviceId);
+  if (!item) {
+    cell.classList.add("is-unknown");
+    cell.textContent = "未测";
+    return cell;
+  }
+  const region = /(?:出口)?地区\s*([A-Z]{2})\b/i.exec(item.detail)?.[1]?.toUpperCase();
+  const stateClass = item.state === "unlocked" ? "is-unlocked"
+    : item.state === "partial" ? "is-partial"
+      : item.state === "blocked" || item.state === "error" ? "is-blocked" : "is-unknown";
+  const label = item.state === "unlocked" ? `解锁${region ? `(${region})` : ""}`
+    : item.state === "partial" ? "部分"
+      : item.state === "blocked" || item.state === "error" ? "失败" : "未知";
+  cell.classList.add(stateClass);
+  cell.textContent = label;
+  cell.title = `${item.detail}${item.statusCode ? ` · HTTP ${item.statusCode}` : ""}`;
+  return cell;
+}
+
+function ipRiskCell(entryId: string): HTMLTableCellElement {
+  const state = nodeTestController?.getResult(entryId, "unlock");
+  const item = state?.result?.unlock?.find(result => result.id === "chatgpt");
+  const cell = document.createElement("td");
+  cell.className = "output-table-unlock-cell";
+  if (state?.state === "running") {
+    cell.classList.add("is-running");
+    cell.textContent = "检测中";
+  } else if (item?.ipRisk === "high") {
+    cell.classList.add("is-blocked");
+    cell.textContent = "高风险";
+    cell.title = item.detail;
+  } else if (item?.ipRisk === "low") {
+    cell.classList.add("is-unlocked");
+    cell.textContent = "低风险";
+    cell.title = "OpenAI IP 接口未将出口识别为 VPN 或代理";
+  } else {
+    cell.classList.add(state ? "is-unknown" : "is-idle");
+    cell.textContent = state ? "未知" : "未检测";
+    cell.title = item?.detail ?? "随 ChatGPT 解锁检测获取 IP 风险结果";
+  }
+  return cell;
+}
+
+function makeColumn(
+  key: string,
+  label: string,
+  width: number,
+  renderCell: OutputTableColumn["renderCell"],
+  className = "",
+  renderFooter?: OutputTableColumn["renderFooter"],
+): OutputTableColumn {
+  return { key, label, width, className, renderCell, renderFooter };
+}
+
+function outputTableColumns(): OutputTableColumn[] {
+  const common: OutputTableColumn[] = [
+    makeColumn("index", "序号", OUTPUT_COLUMN_DEFAULT_WIDTHS.index,
+      (_entry, index) => textCell(`${index + 1}`, "output-table-index-cell"), "is-centered"),
+    makeColumn("name", "节点名称", OUTPUT_COLUMN_DEFAULT_WIDTHS.name, entry => {
+      const cell = document.createElement("td");
+      const name = document.createElement("strong");
+      name.className = "output-table-primary output-table-truncate";
+      name.textContent = entry.name.trim() || "未命名节点";
+      name.title = name.textContent;
+      cell.append(name);
+      return cell;
+    }),
+    makeColumn("protocol", "类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.protocol,
+      entry => textCell(getProtocolLabel(entry.protocol), "output-table-protocol-cell"), "is-centered"),
+  ];
+
+  if (outputTableView === "nodes") {
+    return [
+      ...common,
+      makeColumn("server", "地址", OUTPUT_COLUMN_DEFAULT_WIDTHS.server, entry => textCell(entry.server || "—", "output-table-ip"), "is-left"),
+      makeColumn("port", "端口", OUTPUT_COLUMN_DEFAULT_WIDTHS.port, entry => textCell(`${entry.port}`, "output-table-port"), "is-centered"),
+      makeColumn("region", "节点地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.region, regionCell, "is-centered"),
+      makeColumn("entry", "入口类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.entry, entryTypeCell, "is-centered"),
+    ];
+  }
+
+  const measurements = [
+    makeColumn("rtt", "延迟 RTT", OUTPUT_COLUMN_DEFAULT_WIDTHS.rtt,
+      entry => measureCell(entry.id, "tcping", "latencyMs"), "is-centered"),
+    makeColumn("http", "HTTP 延迟", OUTPUT_COLUMN_DEFAULT_WIDTHS.http,
+      entry => measureCell(entry.id, "url204", "latencyMs"), "is-centered"),
+  ];
+
+  if (outputTableView === "speed") {
+    return [
+      ...common,
+      ...measurements,
+      makeColumn("average", "平均速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.average,
+        entry => speedCell(entry.id, "downloadMbps"), "is-centered"),
+      makeColumn("peak", "最大速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.peak,
+        entry => speedCell(entry.id, "downloadMaxMbps"), "is-centered"),
+      makeColumn("perSecond", "每秒速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.perSecond,
+        entry => speedSamplesCell(entry.id), "is-centered"),
+      makeColumn("linkType", "链路类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.linkType,
+        entry => linkTypeCell(entry.id), "is-centered"),
+    ];
+  }
+
+  const services = nodeTestController?.getUnlockServices() ?? [];
+  const leadingServiceIds = ["netflix", "youtube", "disney", "tiktok", "chatgpt", "gemini", "claude"];
+  const leadingServices = leadingServiceIds
+    .map(id => services.find(service => service.id === id))
+    .filter((service): service is UnlockServiceDefinition => service !== undefined);
+  const leadingIds = new Set(leadingServices.map(service => service.id));
+  const additionalServices = services.filter(service => !leadingIds.has(service.id));
+  return [
+    ...common,
+    ...measurements,
+    ...leadingServices.map(service => serviceColumn(service)),
+    makeColumn("ipRisk", "IP 风险", OUTPUT_COLUMN_DEFAULT_WIDTHS.ipRisk,
+      entry => ipRiskCell(entry.id), "is-centered"),
+    makeColumn("region", "节点地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.region, regionCell, "is-centered"),
+    makeColumn("linkType", "链路类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.linkType,
+      entry => linkTypeCell(entry.id), "is-centered"),
+    ...additionalServices.map(service => serviceColumn(service)),
+  ];
+}
+
+function serviceColumn(service: UnlockServiceDefinition): OutputTableColumn {
+  // 表头按参考图缩短，完整检测名称仍保留在设置项与提示中。
+  const displayNames: Record<string, string> = {
+    youtube: "YouTube",
+    chatgpt: "OpenAI",
+    gemini: "Gemini",
+  };
+  const label = displayNames[service.id] ?? service.name;
+  const width = Math.max(104, Math.min(160, label.length * 9 + 24));
+  return makeColumn(`service:${service.id}`, label, width,
+    entry => unlockResultCell(entry.id, service.id), "is-centered", entries => {
+      const tested = entries.map(entry => nodeTestController?.getResult(entry.id, "unlock"))
+        .filter((state): state is NonNullable<ReturnType<NodeTestController["getResult"]>> => state?.state === "done" && state.result?.success === true)
+        .map(state => state.result?.unlock?.find(item => item.id === service.id))
+        .filter((item): item is NonNullable<typeof item> => item !== undefined);
+      if (!tested.length) return textCell("—", "output-table-summary-cell");
+      const unlocked = tested.filter(item => item.state === "unlocked").length;
+      const percent = Math.round(unlocked / tested.length * 100);
+      return textCell(`${percent}%`, "output-table-summary-cell is-summary-unlocked", `${unlocked}/${tested.length} 个节点支持 ${service.name}`);
+    });
+}
+
+function renderOutputTableHeader(entries: CategorizedOutput[]) {
+  renderedOutputColumns = outputTableColumns();
+  dom.outputTable.dataset.view = outputTableView;
+
+  const colElements = renderedOutputColumns.map(column => {
+    const col = document.createElement("col");
+    col.dataset.columnKey = column.key;
+    col.dataset.defaultWidth = `${column.width}`;
+    return col;
+  });
+  const fillerCol = document.createElement("col");
+  fillerCol.className = "output-table-filler";
+  dom.outputTableColumns.replaceChildren(...colElements, fillerCol);
+
+  const headerRow = document.createElement("tr");
+  for (const column of renderedOutputColumns) {
+    const header = document.createElement("th");
+    header.scope = "col";
+    header.className = column.className ?? "";
+    header.textContent = column.label;
+    const handle = document.createElement("span");
+    handle.className = "output-column-resizer";
+    handle.dataset.columnKey = column.key;
+    handle.dataset.defaultWidth = `${column.width}`;
+    handle.setAttribute("role", "separator");
+    handle.setAttribute("aria-orientation", "vertical");
+    handle.setAttribute("aria-label", `调整${column.label}列宽`);
+    handle.tabIndex = 0;
+    header.append(handle);
+    headerRow.append(header);
+  }
+  const fillerHeader = document.createElement("th");
+  fillerHeader.className = "output-table-filler";
+  fillerHeader.setAttribute("aria-hidden", "true");
+  headerRow.append(fillerHeader);
+  dom.outputTableHead.replaceChildren(headerRow);
+
+  const showSummary = outputTableView === "unlock" && entries.some(entry => nodeTestController?.getResult(entry.id, "unlock")?.state === "done");
+  if (!showSummary) {
+    dom.outputTableFoot.replaceChildren();
+  } else {
+    const summaryRow = document.createElement("tr");
+    for (const column of renderedOutputColumns) {
+      let cell: HTMLTableCellElement;
+      if (column.key === "name") cell = textCell("解锁率", "output-table-summary-label");
+      else if (column.renderFooter) cell = column.renderFooter(entries);
+      else cell = textCell("", "output-table-summary-empty");
+      summaryRow.append(cell);
+    }
+    const filler = document.createElement("td");
+    filler.className = "output-table-filler";
+    filler.setAttribute("aria-hidden", "true");
+    summaryRow.append(filler);
+    dom.outputTableFoot.replaceChildren(summaryRow);
+  }
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-output-table-view]")) {
+    const active = button.dataset.outputTableView === outputTableView;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  }
+  applyOutputColumnWidths();
+}
+
 function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTableRowElement {
   const row = document.createElement("tr");
   row.dataset.nodeId = entry.id;
-
-  const indexCell = document.createElement("td");
-  indexCell.className = "output-table-index";
-  indexCell.textContent = `${index + 1}`;
-
-  const protocolCell = document.createElement("td");
-  protocolCell.textContent = getProtocolLabel(entry.protocol);
-
-  const nameCell = document.createElement("td");
-  const name = document.createElement("strong");
-  name.className = "output-table-primary output-table-truncate";
-  name.textContent = entry.name.trim() || "未命名节点";
-  name.title = name.textContent;
-  nameCell.append(name);
-
-  const addressCell = document.createElement("td");
-  const address = document.createElement("span");
-  address.className = "output-table-truncate output-table-ip";
-  address.textContent = entry.server || "—";
-  address.title = entry.server;
-  addressCell.append(address);
-
-  const portCell = document.createElement("td");
-  portCell.className = "output-table-port";
-  portCell.textContent = `${entry.port}`;
-
-  const regionCell = document.createElement("td");
-  const region = document.createElement("span");
-  region.className = "output-table-truncate";
-  region.textContent = entry.countryCode
-    ? countryNameForCode(entry.countryCode)
-    : regionLookupState === "running" ? "查询中" : "未知";
-  region.title = entry.countryCode ? `${region.textContent} (${entry.countryCode})` : region.textContent;
-  regionCell.append(region);
-
-  const entryCell = document.createElement("td");
-  const entryBadge = document.createElement("span");
-  entryBadge.className = "output-entry-badge";
-  if (!cloudflareDetectionEnabled) {
-    entryBadge.textContent = "未检测";
-  } else if (entry.isCloudflare === true) {
-    entryBadge.textContent = "CF";
-    entryBadge.classList.add("is-cloudflare");
-  } else if (entry.isCloudflare === false) {
-    entryBadge.textContent = "非 CF";
-    entryBadge.classList.add("is-non-cloudflare");
-  } else if (cloudflareDetectionState === "running") {
-    entryBadge.textContent = "检测中";
-  } else {
-    entryBadge.textContent = "—";
-  }
-  entryCell.append(entryBadge);
-
-  const testCells = NODE_TEST_KINDS.map(kind => {
-    const cell = document.createElement("td");
-    cell.className = "output-table-test";
-    const value = nodeTestController?.getResult(entry.id, kind);
-    const badge = document.createElement("span");
-    badge.className = `node-test-cell ${nodeTestResultClass(value)}`;
-    badge.textContent = nodeTestResultText(value, kind);
-    const title = nodeTestResultTitle(value, kind);
-    if (title) badge.title = title;
-    cell.append(badge);
-    return cell;
-  });
-
+  row.append(...renderedOutputColumns.map(column => column.renderCell(entry, index)));
   const fillerCell = document.createElement("td");
   fillerCell.className = "output-table-filler";
   fillerCell.setAttribute("aria-hidden", "true");
-
-  row.append(indexCell, protocolCell, nameCell, addressCell, portCell, regionCell, entryCell, ...testCells, fillerCell);
+  row.append(fillerCell);
   return row;
+}
+
+function setOutputTableView(view: OutputTableView) {
+  if (outputTableView === view) return;
+  outputTableView = view;
+  renderOutputFilter();
 }
 
 function removeOutputEntries(entryIds: string[]): void {
@@ -1572,6 +1881,7 @@ function renderOutputFilter() {
   const uris = filteredEntries.map(entry => entry.uri);
   const value = uris.join("\n");
 
+  renderOutputTableHeader(filteredEntries);
   dom.outputTableBody.replaceChildren();
   filteredEntries.forEach((entry, index) => dom.outputTableBody.append(renderOutputTableRow(entry, index)));
   dom.outputTableWrap.hidden = false;
@@ -2241,6 +2551,12 @@ function bindEvents() {
   });
   dom.outputFilterButton.addEventListener("click", openOutputFilterDialog);
   dom.outputColumnResetButton.addEventListener("click", resetOutputColumnWidths);
+  document.querySelectorAll<HTMLButtonElement>("[data-output-table-view]").forEach(button => {
+    button.addEventListener("click", () => {
+      const view = button.dataset.outputTableView;
+      if (view === "speed" || view === "unlock" || view === "nodes") setOutputTableView(view);
+    });
+  });
   dom.outputFilterDialogClose.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogSave.addEventListener("click", saveOutputFilterDialog);
@@ -2315,6 +2631,10 @@ function bindEvents() {
     })),
     onResultsChanged: () => renderOutputFilter(),
     onDeleteEntries: removeOutputEntries,
+    onTestStarted: kind => {
+      outputTableView = kind === "unlock" ? "unlock" : "speed";
+      renderOutputFilter();
+    },
   });
   renderRegionLookupSettings();
   renderOutputFilter();
