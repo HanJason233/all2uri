@@ -1348,22 +1348,32 @@ body.resizing-output-columns * {
   flex: 0 0 auto;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
 
-.output-global-actions > span {
+.output-overview-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
   color: var(--text-secondary);
   font-size: 10px;
-  white-space: nowrap;
 }
 
-.output-global-actions > div {
+.output-actions-stack {
   display: flex;
   flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.output-utility-actions {
+  display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
@@ -1490,15 +1500,7 @@ body.resizing-output-columns * {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  padding: 8px 0;
-}
-
-.node-test-toolbar-label {
-  margin-right: 2px;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 650;
-  white-space: nowrap;
+  justify-content: flex-end;
 }
 
 .node-test-button {
@@ -1509,9 +1511,9 @@ body.resizing-output-columns * {
 }
 
 .node-test-status {
-  margin-left: auto;
   color: var(--text-muted);
   font-size: 10px;
+  line-height: 1.4;
   white-space: nowrap;
 }
 
@@ -1567,8 +1569,11 @@ body.resizing-output-columns * {
 }
 
 @media (max-width: 760px) {
-  .node-test-status {
-    flex-basis: 100%;
-    margin-left: 0;
+  .output-global-actions {
+    align-items: stretch;
+  }
+
+  .output-actions-stack {
+    align-items: flex-end;
   }
 }
