@@ -103,7 +103,7 @@
                       <th scope="col">入口类型<span class="output-column-resizer" data-column-index="6" role="separator" aria-orientation="vertical" aria-label="调整入口类型列宽" tabindex="0"></span></th>
                       <th scope="col">TCPing<span class="output-column-resizer" data-column-index="7" role="separator" aria-orientation="vertical" aria-label="调整 TCPing 列宽" tabindex="0"></span></th>
                       <th scope="col">204<span class="output-column-resizer" data-column-index="8" role="separator" aria-orientation="vertical" aria-label="调整 204 列宽" tabindex="0"></span></th>
-                      <th scope="col">带宽<span class="output-column-resizer" data-column-index="9" role="separator" aria-orientation="vertical" aria-label="调整带宽列宽" tabindex="0"></span></th>
+                      <th scope="col">传输质量<span class="output-column-resizer" data-column-index="9" role="separator" aria-orientation="vertical" aria-label="调整传输质量列宽" tabindex="0"></span></th>
                       <th scope="col">链路<span class="output-column-resizer" data-column-index="10" role="separator" aria-orientation="vertical" aria-label="调整链路列宽" tabindex="0"></span></th>
                       <th scope="col">解锁<span class="output-column-resizer" data-column-index="11" role="separator" aria-orientation="vertical" aria-label="调整解锁列宽" tabindex="0"></span></th>
                       <th class="output-table-filler" aria-hidden="true"></th>
@@ -122,7 +122,7 @@
                 <div class="node-test-toolbar">
                   <button class="secondary-button node-test-button" data-node-test-kind="tcping" type="button" disabled>TCPing</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="url204" type="button" disabled>204 URL</button>
-                  <button class="secondary-button node-test-button" data-node-test-kind="bandwidth" type="button" disabled>带宽</button>
+                  <button class="secondary-button node-test-button" data-node-test-kind="bandwidth" type="button" disabled>传输质量</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="linkType" type="button" disabled>链路类型</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="unlock" type="button" disabled>解锁</button>
                 </div>
@@ -346,7 +346,7 @@
             </details>
 
             <details class="test-settings-group">
-              <summary>带宽测速</summary>
+              <summary>传输质量测速</summary>
               <label class="settings-row settings-row-wide">
                 <span>下载地址</span>
                 <span class="settings-value settings-value-wide">
@@ -361,9 +361,16 @@
                 </span>
               </label>
               <label class="settings-row">
-                <span>并发</span>
+                <span>单节点下载流数</span>
+                <span class="settings-value">
+                  <input id="node-test-bandwidth-streams" class="settings-control settings-number" type="number" min="1" max="8" step="1" value="4" inputmode="numeric" />
+                  <span>条</span>
+                </span>
+              </label>
+              <label class="settings-row">
+                <span>节点并发</span>
                 <span class="settings-value settings-value-concurrency">
-                  <input id="node-test-bandwidth-concurrency" class="settings-control settings-number" type="number" min="1" max="8" step="1" value="30" inputmode="numeric" />
+                  <input id="node-test-bandwidth-concurrency" class="settings-control settings-number" type="number" min="1" max="3" step="1" value="3" inputmode="numeric" />
                   <select id="node-test-bandwidth-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="????????">
                     <option value="percent" selected>%</option>
                     <option value="count">个</option>
@@ -371,7 +378,7 @@
                 </span>
               </label>
               <label class="settings-row">
-                <span>自动删除低带宽节点</span>
+                <span>自动删除低速节点</span>
                 <input class="settings-checkbox" id="node-test-bandwidth-auto-delete" type="checkbox" />
               </label>
               <label class="settings-row">

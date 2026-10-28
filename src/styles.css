@@ -1618,6 +1618,13 @@ body.resizing-output-columns * {
   margin-top: 8px;
 }
 
+.test-service-category {
+  grid-column: 1 / -1;
+  margin-top: 5px;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
 .test-service-option {
   display: flex;
   gap: 6px;

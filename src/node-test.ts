@@ -31,7 +31,14 @@ interface UnlockServiceResult {
 interface NodeTestResponse {
   success: boolean;
   latencyMs?: number;
+  latencyMinMs?: number;
+  latencyMaxMs?: number;
+  latencyJitterMs?: number;
+  latencySamplesMs?: number[];
   downloadMbps?: number;
+  downloadMaxMbps?: number;
+  downloadJitterMbps?: number;
+  downloadSamples?: Array<{ durationMs: number; mbps: number }>;
   statusCode?: number;
   linkType?: string;
   entryIps?: string[];
@@ -44,6 +51,7 @@ interface NodeTestResponse {
 interface UnlockServiceDefinition {
   id: string;
   name: string;
+  category: "network" | "ai" | "streaming" | "other";
 }
 
 interface TestSettings {
@@ -62,6 +70,7 @@ interface TestSettings {
 
   bandwidthUrl: string;
   bandwidthDurationMs: number;
+  bandwidthStreams: number;
   bandwidthConcurrencyMode: ConcurrencyMode;
   bandwidthConcurrency: number;
   bandwidthAutoDeleteLowSpeedNodes: boolean;
@@ -97,18 +106,32 @@ const DEFAULT_BANDWIDTH_URL = "https://speed.cloudflare.com/__down?bytes=2500000
 const SETTINGS_KEY = "all2uri.node-test-settings";
 const TEST_KINDS: NodeTestKind[] = ["tcping", "url204", "bandwidth", "linkType", "unlock"];
 const UNLOCK_SERVICES: UnlockServiceDefinition[] = [
-  { id: "google_cn", name: "Google \u9001\u4e2d\u68c0\u6d4b" },
-  { id: "chatgpt", name: "ChatGPT" },
-  { id: "claude", name: "Claude" },
-  { id: "gemini", name: "Google Gemini" },
-  { id: "netflix", name: "Netflix" },
-  { id: "disney", name: "Disney+" },
-  { id: "max", name: "Max (HBO)" },
-  { id: "prime", name: "Prime Video" },
-  { id: "youtube", name: "YouTube Premium" },
-  { id: "tiktok", name: "TikTok" },
-  { id: "spotify", name: "Spotify" },
-  { id: "wikipedia", name: "Wikipedia" },
+  { id: "google_cn", name: "Google \u9001\u4e2d\u68c0\u6d4b", category: "network" },
+  { id: "chatgpt", name: "ChatGPT / OpenAI", category: "ai" },
+  { id: "copilot", name: "Microsoft Copilot", category: "ai" },
+  { id: "claude", name: "Claude", category: "ai" },
+  { id: "gemini", name: "Google Gemini", category: "ai" },
+  { id: "llama", name: "Meta Llama API", category: "ai" },
+  { id: "perplexity", name: "Perplexity", category: "ai" },
+  { id: "sora", name: "Sora", category: "ai" },
+  { id: "grok", name: "Grok", category: "ai" },
+  { id: "netflix", name: "Netflix", category: "streaming" },
+  { id: "disney", name: "Disney+", category: "streaming" },
+  { id: "bilibili", name: "\u54d4\u54e9\u54d4\u54e9\u6e2f\u6fb3\u53f0", category: "streaming" },
+  { id: "dazn", name: "DAZN", category: "streaming" },
+  { id: "abema", name: "AbemaTV", category: "streaming" },
+  { id: "bahamut", name: "\u5df4\u54c8\u59c6\u7279\u52a8\u753b\u75af", category: "streaming" },
+  { id: "max", name: "Max (HBO)", category: "streaming" },
+  { id: "prime", name: "Prime Video", category: "streaming" },
+  { id: "youtube", name: "YouTube Premium", category: "streaming" },
+  { id: "tiktok", name: "TikTok", category: "streaming" },
+  { id: "steam", name: "Steam \u5546\u5e97\u533a", category: "other" },
+  { id: "spotify", name: "Spotify", category: "other" },
+  { id: "wikipedia", name: "Wikipedia", category: "other" },
+];
+const LEGACY_DEFAULT_UNLOCK_IDS = [
+  "google_cn", "chatgpt", "claude", "gemini", "netflix", "disney", "max", "prime",
+  "youtube", "tiktok", "spotify", "wikipedia",
 ];
 const DEFAULT_UNLOCK_IDS = UNLOCK_SERVICES.map(item => item.id);
 
@@ -150,8 +173,9 @@ function defaultSettings(): TestSettings {
     url204AutoDeleteTimeoutNodes: false,
     bandwidthUrl: DEFAULT_BANDWIDTH_URL,
     bandwidthDurationMs: 3_000,
+    bandwidthStreams: 4,
     bandwidthConcurrencyMode: "percent",
-    bandwidthConcurrency: 30,
+    bandwidthConcurrency: 3,
     bandwidthAutoDeleteLowSpeedNodes: false,
     bandwidthAutoDeleteThresholdMbps: 10,
     linkTypeConcurrencyMode: "count",
@@ -178,6 +202,10 @@ function loadSettings(): TestSettings {
     const selectedIds = Array.isArray(parsed.unlockTestIds)
       ? parsed.unlockTestIds.filter((id): id is string => typeof id === "string" && UNLOCK_SERVICES.some(service => service.id === id))
       : fallback.unlockTestIds;
+    const unlockTestIds = selectedIds.length === LEGACY_DEFAULT_UNLOCK_IDS.length
+      && LEGACY_DEFAULT_UNLOCK_IDS.every(id => selectedIds.includes(id))
+      ? [...DEFAULT_UNLOCK_IDS]
+      : selectedIds.length ? selectedIds : [...DEFAULT_UNLOCK_IDS];
     return {
       tcpingTimeoutMs: clampNumber(String(parsed.tcpingTimeoutMs ?? legacyTimeout ?? fallback.tcpingTimeoutMs), fallback.tcpingTimeoutMs, 500, 120_000),
       tcpingConcurrencyMode: concurrencyMode(parsed.tcpingConcurrencyMode ?? fallback.tcpingConcurrencyMode),
@@ -192,8 +220,9 @@ function loadSettings(): TestSettings {
       url204AutoDeleteTimeoutNodes: typeof parsed.url204AutoDeleteTimeoutNodes === "boolean" ? parsed.url204AutoDeleteTimeoutNodes : fallback.url204AutoDeleteTimeoutNodes,
       bandwidthUrl: typeof parsed.bandwidthUrl === "string" && parsed.bandwidthUrl.trim() ? parsed.bandwidthUrl.trim() : fallback.bandwidthUrl,
       bandwidthDurationMs: clampNumber(String(parsed.bandwidthDurationMs ?? fallback.bandwidthDurationMs), fallback.bandwidthDurationMs, 1_000, 60_000),
+      bandwidthStreams: clampNumber(String(parsed.bandwidthStreams ?? fallback.bandwidthStreams), fallback.bandwidthStreams, 1, 8),
       bandwidthConcurrencyMode: concurrencyMode(parsed.bandwidthConcurrencyMode ?? fallback.bandwidthConcurrencyMode),
-      bandwidthConcurrency: clampNumber(String(parsed.bandwidthConcurrency ?? legacyConcurrency ?? fallback.bandwidthConcurrency), fallback.bandwidthConcurrency, 1, 8),
+      bandwidthConcurrency: clampNumber(String(parsed.bandwidthConcurrency ?? legacyConcurrency ?? fallback.bandwidthConcurrency), fallback.bandwidthConcurrency, 1, 3),
       bandwidthAutoDeleteLowSpeedNodes: typeof parsed.bandwidthAutoDeleteLowSpeedNodes === "boolean" ? parsed.bandwidthAutoDeleteLowSpeedNodes : fallback.bandwidthAutoDeleteLowSpeedNodes,
       bandwidthAutoDeleteThresholdMbps: clampNumber(String(parsed.bandwidthAutoDeleteThresholdMbps ?? fallback.bandwidthAutoDeleteThresholdMbps), fallback.bandwidthAutoDeleteThresholdMbps, 1, 10_000),
       linkTypeConcurrencyMode: concurrencyMode(parsed.linkTypeConcurrencyMode ?? fallback.linkTypeConcurrencyMode),
@@ -205,7 +234,7 @@ function loadSettings(): TestSettings {
       unlockConcurrency: clampNumber(String(parsed.unlockConcurrency ?? fallback.unlockConcurrency), fallback.unlockConcurrency, 1, 512),
       unlockRequestConcurrency: clampNumber(String(parsed.unlockRequestConcurrency ?? fallback.unlockRequestConcurrency), fallback.unlockRequestConcurrency, 1, 12),
       unlockServiceTimeoutMs: clampNumber(String(parsed.unlockServiceTimeoutMs ?? fallback.unlockServiceTimeoutMs), fallback.unlockServiceTimeoutMs, 1_000, 120_000),
-      unlockTestIds: selectedIds.length ? selectedIds : [...DEFAULT_UNLOCK_IDS],
+      unlockTestIds,
     };
   } catch {
     return fallback;
@@ -224,7 +253,7 @@ function kindLabel(kind: NodeTestKind): string {
   switch (kind) {
     case "tcping": return "TCPing";
     case "url204": return "204 URL";
-    case "bandwidth": return "\u5e26\u5bbd\u6d4b\u901f";
+    case "bandwidth": return "\u4f20\u8f93\u8d28\u91cf";
     case "linkType": return "\u94fe\u8def\u7c7b\u578b";
     case "unlock": return "\u6d41\u5a92\u4f53\u4e0e AI \u89e3\u9501";
   }
@@ -274,9 +303,12 @@ export function nodeTestResultText(state: NodeTestResultState | undefined, kind:
     case "tcping":
       return result.latencyMs === undefined ? "\u6210\u529f" : `${result.latencyMs} ms`;
     case "url204":
-      return result.statusCode === undefined ? "\u6210\u529f" : `${result.statusCode}`;
-    case "bandwidth":
-      return result.downloadMbps === undefined ? "\u6210\u529f" : `${result.downloadMbps.toFixed(1)}M`;
+      return result.latencyMs === undefined ? "\u6210\u529f" : `${result.latencyMs} ms`;
+    case "bandwidth": {
+      if (result.downloadMbps === undefined) return "\u6210\u529f";
+      const peak = result.downloadMaxMbps ?? result.downloadMbps;
+      return `${result.downloadMbps.toFixed(1)}/${peak.toFixed(1)}M`;
+    }
     case "linkType":
       if (result.linkType === "direct") return "\u76f4\u8fde";
       if (result.linkType === "cdn-relay") return "CDN";
@@ -300,10 +332,22 @@ export function nodeTestResultTitle(state: NodeTestResultState | undefined, kind
   switch (kind) {
     case "tcping":
       return `TCPing \u6210\u529f \u00b7 ${result.latencyMs ?? "?"} ms`;
-    case "url204":
-      return `HTTP ${result.statusCode ?? "?"} \u00b7 ${result.latencyMs ?? "?"} ms`;
-    case "bandwidth":
-      return `\u4e0b\u8f7d ${result.downloadMbps?.toFixed(2) ?? "?"} Mbps`;
+    case "url204": {
+      const samples = result.latencySamplesMs?.map(value => `${value} ms`).join(" / ") ?? "";
+      const range = result.latencyMinMs === undefined || result.latencyMaxMs === undefined
+        ? ""
+        : ` \u00b7 ${result.latencyMinMs}\u2013${result.latencyMaxMs} ms`;
+      const jitter = result.latencyJitterMs === undefined ? "" : ` \u00b7 \u76f8\u90bb\u6837\u672c\u5e73\u5747\u5dee ${result.latencyJitterMs.toFixed(1)} ms`;
+      const series = samples ? `\n\u6837\u672c\uff1a${samples}` : "";
+      return `HTTP ${result.statusCode ?? "?"} \u00b7 \u5e73\u5747 ${result.latencyMs ?? "?"} ms${range}${jitter}${series}`;
+    }
+    case "bandwidth": {
+      const average = result.downloadMbps?.toFixed(2) ?? "?";
+      const peak = result.downloadMaxMbps?.toFixed(2) ?? average;
+      const jitter = result.downloadJitterMbps === undefined ? "" : ` \u00b7 \u6bcf\u79d2\u6ce2\u52a8 ${result.downloadJitterMbps.toFixed(2)} Mbps`;
+      const samples = result.downloadSamples?.map(sample => `${sample.durationMs} ms: ${sample.mbps.toFixed(2)} Mbps`).join("\n") ?? "";
+      return `\u5e73\u5747 ${average} Mbps \u00b7 \u5cf0\u503c ${peak} Mbps${jitter}${samples ? `\n\u9010\u79d2\uff1a\n${samples}` : ""}`;
+    }
     case "linkType": {
       const label = result.linkType === "direct" ? "\u76f4\u8fde" : result.linkType === "cdn-relay" ? "CDN \u4e2d\u8f6c" : "\u666e\u901a\u4e2d\u8f6c";
       const provider = result.cdnProvider ? ` \u00b7 ${result.cdnProvider}` : "";
@@ -331,6 +375,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
   const url204AutoDelete = byId<HTMLInputElement>("node-test-url204-auto-delete");
   const bandwidthUrl = byId<HTMLInputElement>("node-test-bandwidth-url");
   const bandwidthDuration = byId<HTMLInputElement>("node-test-bandwidth-duration");
+  const bandwidthStreams = byId<HTMLInputElement>("node-test-bandwidth-streams");
   const bandwidthConcurrency = byId<HTMLInputElement>("node-test-bandwidth-concurrency");
   const bandwidthMode = byId<HTMLSelectElement>("node-test-bandwidth-concurrency-mode");
   const bandwidthAutoDelete = byId<HTMLInputElement>("node-test-bandwidth-auto-delete");
@@ -365,8 +410,9 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
       url204AutoDeleteTimeoutNodes: url204AutoDelete.checked,
       bandwidthUrl: bandwidthUrl.value.trim() || DEFAULT_BANDWIDTH_URL,
       bandwidthDurationMs: clampNumber(bandwidthDuration.value, 3_000, 1_000, 60_000),
+      bandwidthStreams: clampNumber(bandwidthStreams.value, 4, 1, 8),
       bandwidthConcurrencyMode: concurrencyMode(bandwidthMode.value),
-      bandwidthConcurrency: clampNumber(bandwidthConcurrency.value, 30, 1, 8),
+      bandwidthConcurrency: clampNumber(bandwidthConcurrency.value, 3, 1, 3),
       bandwidthAutoDeleteLowSpeedNodes: bandwidthAutoDelete.checked,
       bandwidthAutoDeleteThresholdMbps: clampNumber(bandwidthThreshold.value, 10, 1, 10_000),
       linkTypeConcurrencyMode: concurrencyMode(linkTypeMode.value),
@@ -386,18 +432,32 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
 
   const renderUnlockServices = (selectedIds: string[]) => {
     unlockServices.replaceChildren();
-    for (const service of UNLOCK_SERVICES) {
-      const label = document.createElement("label");
-      label.className = "test-service-option";
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.dataset.serviceId = service.id;
-      input.checked = selectedIds.includes(service.id);
-      input.addEventListener("change", persist);
-      const text = document.createElement("span");
-      text.textContent = service.name;
-      label.append(input, text);
-      unlockServices.append(label);
+    const categories = [
+      ["network", "\u7f51\u7edc\u72b6\u6001"],
+      ["ai", "AI \u670d\u52a1"],
+      ["streaming", "\u6d41\u5a92\u4f53"],
+      ["other", "\u5176\u4ed6\u670d\u52a1"],
+    ] as const;
+    for (const [category, title] of categories) {
+      const services = UNLOCK_SERVICES.filter(service => service.category === category);
+      if (!services.length) continue;
+      const heading = document.createElement("strong");
+      heading.className = "test-service-category";
+      heading.textContent = title;
+      unlockServices.append(heading);
+      for (const service of services) {
+        const label = document.createElement("label");
+        label.className = "test-service-option";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.dataset.serviceId = service.id;
+        input.checked = selectedIds.includes(service.id);
+        input.addEventListener("change", persist);
+        const text = document.createElement("span");
+        text.textContent = service.name;
+        label.append(input, text);
+        unlockServices.append(label);
+      }
     }
   };
 
@@ -415,6 +475,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     url204AutoDelete.checked = settings.url204AutoDeleteTimeoutNodes;
     bandwidthUrl.value = settings.bandwidthUrl;
     bandwidthDuration.value = String(settings.bandwidthDurationMs);
+    bandwidthStreams.value = String(settings.bandwidthStreams);
     bandwidthConcurrency.value = String(settings.bandwidthConcurrency);
     bandwidthMode.value = settings.bandwidthConcurrencyMode;
     bandwidthAutoDelete.checked = settings.bandwidthAutoDeleteLowSpeedNodes;
@@ -435,7 +496,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
   for (const input of [
     tcpingTimeout, tcpingConcurrency, tcpingMode, tcpingAutoDelete,
     url204, url204Backup, url204Warmup, url204Measurement, url204Concurrency, url204Mode, url204AutoDelete,
-    bandwidthUrl, bandwidthDuration, bandwidthConcurrency, bandwidthMode, bandwidthAutoDelete, bandwidthThreshold,
+    bandwidthUrl, bandwidthDuration, bandwidthStreams, bandwidthConcurrency, bandwidthMode, bandwidthAutoDelete, bandwidthThreshold,
     linkTypeConcurrency, linkTypeMode, linkTypeAcceptDirect, linkTypeAcceptRelay, linkTypeAcceptCdn,
     unlockConcurrency, unlockMode, unlockRequestConcurrency, unlockServiceTimeout,
   ]) {
@@ -503,10 +564,13 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
                 ? settings.tcpingTimeoutMs
                 : kind === "url204"
                   ? settings.url204MeasurementTimeoutMs
+                  : kind === "bandwidth"
+                    ? settings.bandwidthDurationMs + 6_000
                   : settings.unlockServiceTimeoutMs,
               warmupTimeoutMs: kind === "url204" ? settings.url204WarmupTimeoutMs : null,
               measurementTimeoutMs: kind === "url204" ? settings.url204MeasurementTimeoutMs : null,
               durationMs: kind === "bandwidth" ? settings.bandwidthDurationMs : null,
+              bandwidthStreams: kind === "bandwidth" ? settings.bandwidthStreams : null,
               unlockServiceIds: kind === "unlock" ? settings.unlockTestIds : null,
               unlockRequestConcurrency: kind === "unlock" ? settings.unlockRequestConcurrency : null,
             },
