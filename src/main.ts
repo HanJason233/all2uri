@@ -138,7 +138,6 @@ const OUTPUT_COLUMN_DEFAULT_WIDTHS: Record<string, number> = {
   server: 190,
   port: 72,
   region: 150,
-  entry: 92,
   rtt: 110,
   http: 120,
   average: 140,
@@ -1577,16 +1576,23 @@ function speedSamplesCell(entryId: string): HTMLTableCellElement {
   return cell;
 }
 
-function linkTypeCell(entryId: string): HTMLTableCellElement {
-  const state = testCellState(entryId, "linkType");
+function linkTypeCell(entry: CategorizedOutput): HTMLTableCellElement {
+  const state = testCellState(entry.id, "linkType");
   const result = state.result;
+  const isCloudflare = entry.isCloudflare ?? (result?.cdnProvider ? result.cdnProvider === "Cloudflare" : null);
   const label = result?.linkType === "direct" ? "直连"
-    : result?.linkType === "cdn-relay" ? "CDN中转"
-      : result?.linkType === "relay" ? "中转" : "—";
-  const cell = textCell(state.state === "running" ? "检测中" : state.state === "error" ? "失败" : label,
+    : result?.linkType === "cdn-relay" && isCloudflare === true ? "CF中转"
+      : result?.linkType === "cdn-relay" ? "CDN中转"
+        : result?.linkType === "relay" ? "中转" : "—";
+  const cloudflareLabel = isCloudflare === true ? "CF" : isCloudflare === false ? "非CF" : "";
+  const stateLabel = state.state === "running" ? "检测中" : state.state === "error" ? "失败" : label;
+  const visibleLabel = label === "CF中转" && state.state === "done"
+    ? stateLabel
+    : cloudflareLabel ? `${stateLabel} · ${cloudflareLabel}` : stateLabel;
+  const cell = textCell(visibleLabel,
     `output-table-result-cell is-${state.state}`);
   cell.title = result
-    ? `${label}${result.cdnProvider ? ` · ${result.cdnProvider}` : ""}${result.entryIps?.length ? ` · 入口 ${result.entryIps.join(", ")}` : ""}${result.exitIp ? ` · 出口 ${result.exitIp}` : ""}`
+    ? `${label}${result.cdnProvider ? ` · ${result.cdnProvider}` : ""}${isCloudflare !== null ? ` · ${isCloudflare ? "CF 入口" : "非 CF 入口"}` : ""}${result.entryIps?.length ? ` · 入口 ${result.entryIps.join(", ")}` : ""}${result.exitIp ? ` · 出口 ${result.exitIp}` : ""}`
     : state.title;
   return cell;
 }
@@ -1594,27 +1600,6 @@ function linkTypeCell(entryId: string): HTMLTableCellElement {
 function regionCell(entry: CategorizedOutput): HTMLTableCellElement {
   const label = entry.countryCode ? countryNameForCode(entry.countryCode) : regionLookupState === "running" ? "查询中" : "未知";
   return textCell(label, "output-table-text-cell", entry.countryCode ? `${label} (${entry.countryCode})` : label);
-}
-
-function entryTypeCell(entry: CategorizedOutput): HTMLTableCellElement {
-  const cell = document.createElement("td");
-  const badge = document.createElement("span");
-  badge.className = "output-entry-badge";
-  if (!cloudflareDetectionEnabled) {
-    badge.textContent = "未检测";
-  } else if (entry.isCloudflare === true) {
-    badge.textContent = "CF";
-    badge.classList.add("is-cloudflare");
-  } else if (entry.isCloudflare === false) {
-    badge.textContent = "非 CF";
-    badge.classList.add("is-non-cloudflare");
-  } else if (cloudflareDetectionState === "running") {
-    badge.textContent = "检测中";
-  } else {
-    badge.textContent = "—";
-  }
-  cell.append(badge);
-  return cell;
 }
 
 function unlockResultCell(entryId: string, serviceId: string): HTMLTableCellElement {
@@ -1729,7 +1714,8 @@ function outputTableColumns(): OutputTableColumn[] {
     makeColumn("port", "端口", OUTPUT_COLUMN_DEFAULT_WIDTHS.port,
       entry => textCell(`${entry.port}`, "output-table-port"), "is-centered"),
     makeColumn("region", "节点地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.region, regionCell, "is-centered"),
-    makeColumn("entry", "入口类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.entry, entryTypeCell, "is-centered"),
+    makeColumn("linkType", "链路类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.linkType,
+      entry => linkTypeCell(entry), "is-centered"),
     ...measurements,
     makeColumn("average", "平均速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.average,
       entry => speedCell(entry.id, "downloadMbps"), "is-centered"),
@@ -1737,8 +1723,6 @@ function outputTableColumns(): OutputTableColumn[] {
       entry => speedCell(entry.id, "downloadMaxMbps"), "is-centered"),
     makeColumn("perSecond", "每秒速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.perSecond,
       entry => speedSamplesCell(entry.id), "is-centered"),
-    makeColumn("linkType", "链路类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.linkType,
-      entry => linkTypeCell(entry.id), "is-centered"),
     ...leadingServices.map(service => serviceColumn(service)),
     ...additionalServices.map(service => serviceColumn(service)),
     makeColumn("ipRisk", "IP 风险", OUTPUT_COLUMN_DEFAULT_WIDTHS.ipRisk,
