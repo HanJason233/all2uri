@@ -983,45 +983,57 @@ body.resizing-output-columns * {
   white-space: nowrap;
 }
 
+/* 未测为灰色，检测中为待处理黄，普通测速失败使用 NekoSpeed 失败红。 */
 .output-table-result-cell.is-idle,
 .output-table-unlock-cell.is-idle {
-  color: #8390a0;
-  background: #f8fafc;
+  color: #1a1a1a;
+  background: #a0a0a0;
 }
 
 .output-table-result-cell.is-running,
 .output-table-unlock-cell.is-running {
-  color: #006b78;
-  background: #d9f5f3;
+  color: #1a1a1a;
+  background: #f5d76e;
 }
 
 .output-table-result-cell.is-error {
-  color: #721f2b;
-  background: #ef727d;
+  color: #1a1a1a;
+  background: #e06060;
 }
 
 .output-table-unlock-cell {
   font-weight: 550;
 }
 
+/* 解锁状态沿用 NekoSpeed 配色：可用绿、待确认黄、送中橄榄黄、受限红、请求失败深红。 */
 .output-table-unlock-cell.is-unlocked {
-  color: #254817;
-  background: #bce47d;
+  color: #1a1a1a;
+  background: #7bd88f;
 }
 
 .output-table-unlock-cell.is-partial {
-  color: #594500;
-  background: #ffe08a;
+  color: #1a1a1a;
+  background: #f5d76e;
+}
+
+.output-table-unlock-cell.is-sent-to-cn {
+  color: #1a1a1a;
+  background: #c9b95c;
 }
 
 .output-table-unlock-cell.is-blocked {
-  color: #601923;
-  background: #ed707b;
+  color: #1a1a1a;
+  background: #e06060;
+}
+
+.output-table-unlock-cell.is-request-failed {
+  color: #ffffff;
+  background: #b03030;
 }
 
 .output-table-unlock-cell.is-unknown {
-  color: #07465c;
-  background: #68cbdc;
+  color: #1a1a1a;
+  background: #a0a0a0;
 }
 
 .output-table-spark-cell {
@@ -1040,7 +1052,7 @@ body.resizing-output-columns * {
 .speed-sparkline-bar {
   flex: 1 1 0;
   min-width: 2px;
-  background: #38b8eb;
+  background: #2fb8d6;
 }
 
 .output-table-summary-label,

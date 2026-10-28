@@ -1503,6 +1503,72 @@ function testCellState(entryId: string, kind: NodeTestKind): { state: string; ti
   return { state: "done", title: "", result };
 }
 
+type RGBColor = readonly [number, number, number];
+type ColorStop = readonly [number, RGBColor];
+
+// 延迟热力图沿用 NekoSpeed 的颜色锚点，位置按 2000ms 归一化。
+const LATENCY_COLOR_STOPS: readonly ColorStop[] = [
+  [0, [0x7b, 0xd8, 0x8f]],
+  [0.3, [0xc2, 0xcf, 0x5c]],
+  [0.6, [0xf0, 0xa0, 0x4b]],
+  [1, [0xe0, 0x60, 0x60]],
+];
+
+// 平均速度和峰值速度共用绿、青、蓝渐变。
+const SPEED_COLOR_STOPS: readonly ColorStop[] = [
+  [0, [0x7b, 0xd8, 0x8f]],
+  [0.5, [0x46, 0xc7, 0xc7]],
+  [1, [0x5b, 0x8d, 0xef]],
+];
+
+// 为失败、零速和无结果保留不同底色，避免把未测误显示成失败。
+const TABLE_CELL_COLORS = {
+  failure: [0xe0, 0x60, 0x60] as const,
+  zeroSpeed: [0x9e, 0x9e, 0x9e] as const,
+  neutral: [0xa0, 0xa0, 0xa0] as const,
+};
+
+// 在相邻颜色锚点间线性插值，超出范围时使用首尾锚点颜色。
+function interpolateTableColor(stops: readonly ColorStop[], progress: number): RGBColor {
+  const value = Math.max(0, Math.min(1, progress));
+  if (value <= stops[0][0]) return stops[0][1];
+
+  for (let index = 1; index < stops.length; index += 1) {
+    const [end, endColor] = stops[index];
+    if (value <= end) {
+      const [start, startColor] = stops[index - 1];
+      const ratio = (value - start) / (end - start);
+      return [
+        Math.trunc(startColor[0] + (endColor[0] - startColor[0]) * ratio),
+        Math.trunc(startColor[1] + (endColor[1] - startColor[1]) * ratio),
+        Math.trunc(startColor[2] + (endColor[2] - startColor[2]) * ratio),
+      ];
+    }
+  }
+
+  return stops[stops.length - 1][1];
+}
+
+// 按单元格底色亮度切换深色或白色文字，保证色块上的文字可读。
+function setTableCellColor(cell: HTMLTableCellElement, color: RGBColor) {
+  const [red, green, blue] = color;
+  const luminance = 0.299 * red + 0.587 * green + 0.114 * blue;
+  cell.style.backgroundColor = `rgb(${red}, ${green}, ${blue})`;
+  cell.style.color = luminance > 130 ? "#1a1a1a" : "#ffffff";
+}
+
+function latencyCellColor(milliseconds: number): RGBColor {
+  // 对齐 NekoSpeed：0~2000ms 映射为绿、黄绿、橙、红渐变。
+  return interpolateTableColor(LATENCY_COLOR_STOPS, milliseconds / 2_000);
+}
+
+function speedCellColor(megabitsPerSecond: number): RGBColor {
+  // NekoSpeed 使用字节/秒；本项目以 Mbps 记录，先换算后沿用 1 GiB/s 对数标尺。
+  const bytesPerSecond = Math.max(0, megabitsPerSecond) * 1_000_000 / 8;
+  const progress = Math.log1p(bytesPerSecond) / Math.log1p(1 << 30);
+  return interpolateTableColor(SPEED_COLOR_STOPS, progress);
+}
+
 function formatSpeed(mbps: number): string {
   return mbps < 1 ? `${(mbps * 1_000).toFixed(2)}Kbps` : `${mbps.toFixed(2)}Mbps`;
 }
@@ -1517,8 +1583,9 @@ function measureCell(entryId: string, kind: "tcping" | "url204", valueKey: "late
     const latency = state.result[valueKey]!;
     cell.textContent = `${latency}ms`;
     cell.title = `${kind === "tcping" ? "TCP RTT" : "HTTP 延迟"}：${latency}ms${state.result.statusCode ? ` · HTTP ${state.result.statusCode}` : ""}`;
-    const goodness = Math.max(0, 1 - Math.min(latency, 1_500) / 1_500);
-    cell.style.backgroundColor = `rgba(35, 205, 177, ${0.07 + goodness * 0.32})`;
+    setTableCellColor(cell, latency > 0 ? latencyCellColor(latency) : TABLE_CELL_COLORS.failure);
+  } else if (state.state === "done") {
+    setTableCellColor(cell, TABLE_CELL_COLORS.neutral);
   }
   return cell;
 }
@@ -1534,8 +1601,10 @@ function speedCell(entryId: string, valueKey: "downloadMbps" | "downloadMaxMbps"
     if (value !== undefined) {
       cell.textContent = formatSpeed(value);
       cell.title = `${valueKey === "downloadMbps" ? "平均速度" : "最大速度"}：${formatSpeed(value)}`;
-      const strength = Math.min(1, Math.log1p(Math.max(0, value)) / Math.log1p(1_000));
-      cell.style.backgroundColor = `rgba(62, 151, 247, ${0.06 + strength * 0.30})`;
+      const hasMeasuredSpeed = (state.result.downloadMbps ?? 0) > 0;
+      setTableCellColor(cell, hasMeasuredSpeed ? speedCellColor(value) : TABLE_CELL_COLORS.zeroSpeed);
+    } else {
+      setTableCellColor(cell, TABLE_CELL_COLORS.neutral);
     }
   }
   return cell;
@@ -1617,8 +1686,8 @@ function unlockResultCell(entryId: string, serviceId: string): HTMLTableCellElem
     return cell;
   }
   if (testState.state === "error" || !testState.result?.success) {
-    cell.classList.add("is-blocked");
-    cell.textContent = "失败";
+    cell.classList.add("is-request-failed");
+    cell.textContent = "请求失败";
     cell.title = testState.error ?? testState.result?.error ?? "解锁检测失败";
     return cell;
   }
@@ -1629,12 +1698,19 @@ function unlockResultCell(entryId: string, serviceId: string): HTMLTableCellElem
     return cell;
   }
   const region = /(?:出口)?地区\s*([A-Z]{2})\b/i.exec(item.detail)?.[1]?.toUpperCase();
+  // 送中单独使用橄榄黄；warning/partial 为待确认黄；网络请求错误用深红。
+  const sentToChina = item.state === "senttocn" || (item.state === "blocked" && /(送中|google\.cn)/i.test(item.detail));
   const stateClass = item.state === "unlocked" ? "is-unlocked"
-    : item.state === "partial" ? "is-partial"
-      : item.state === "blocked" || item.state === "error" ? "is-blocked" : "is-unknown";
+    : item.state === "partial" || item.state === "warning" ? "is-partial"
+      : sentToChina ? "is-sent-to-cn"
+        : item.state === "blocked" ? "is-blocked"
+          : item.state === "error" ? "is-request-failed" : "is-unknown";
   const label = item.state === "unlocked" ? `解锁${region ? `(${region})` : ""}`
     : item.state === "partial" ? "部分"
-      : item.state === "blocked" || item.state === "error" ? "失败" : "未知";
+      : item.state === "warning" ? "待确认"
+        : sentToChina ? "送中"
+          : item.state === "blocked" ? "失败"
+            : item.state === "error" ? "请求失败" : "未知";
   cell.classList.add(stateClass);
   cell.textContent = label;
   cell.title = `${item.detail}${item.statusCode ? ` · HTTP ${item.statusCode}` : ""}`;
@@ -1649,6 +1725,10 @@ function ipRiskCell(entryId: string): HTMLTableCellElement {
   if (state?.state === "running") {
     cell.classList.add("is-running");
     cell.textContent = "检测中";
+  } else if (state?.state === "error" || (state?.state === "done" && !state.result?.success)) {
+    cell.classList.add("is-request-failed");
+    cell.textContent = "请求失败";
+    cell.title = state.error ?? state.result?.error ?? "IP 风险检测失败";
   } else if (item?.ipRisk === "high") {
     cell.classList.add("is-blocked");
     cell.textContent = "高风险";
