@@ -115,7 +115,7 @@ const REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
 const CLOUDFLARE_DETECTION_ENABLED_STORAGE_KEY = "all2uri.cloudflare-detection-enabled";
 const CLOUDFLARE_DETECTION_CONCURRENCY_STORAGE_KEY = "all2uri.cloudflare-detection-concurrency";
-const OUTPUT_COLUMN_DEFAULT_WIDTHS = [42, 84, 180, 180, 72, 100, 88, 74];
+const OUTPUT_COLUMN_DEFAULT_WIDTHS = [42, 84, 180, 180, 72, 100, 88];
 const OUTPUT_COLUMN_DEFAULT_TOTAL = OUTPUT_COLUMN_DEFAULT_WIDTHS.reduce((total, width) => total + width, 0);
 const OUTPUT_COLUMN_MIN_WIDTH = 20;
 const USER_AGENT_PRESETS: Record<string, string> = {
@@ -1525,21 +1525,11 @@ function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTabl
   }
   entryCell.append(entryBadge);
 
-  const actionCell = document.createElement("td");
-  actionCell.className = "output-table-action";
-  const copy = document.createElement("button");
-  copy.className = "output-row-copy";
-  copy.type = "button";
-  copy.textContent = "复制";
-  copy.setAttribute("aria-label", `复制节点 ${name.textContent}`);
-  copy.addEventListener("click", () => void copyUris([entry.uri], `节点“${name.textContent}”`));
-  actionCell.append(copy);
-
   const fillerCell = document.createElement("td");
   fillerCell.className = "output-table-filler";
   fillerCell.setAttribute("aria-hidden", "true");
 
-  row.append(indexCell, protocolCell, nameCell, addressCell, portCell, regionCell, entryCell, actionCell, fillerCell);
+  row.append(indexCell, protocolCell, nameCell, addressCell, portCell, regionCell, entryCell, fillerCell);
   return row;
 }
 

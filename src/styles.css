@@ -991,28 +991,6 @@ body.resizing-output-columns * {
   color: var(--warning);
 }
 
-.output-table-action {
-  text-align: right;
-}
-
-.output-row-copy {
-  min-width: 46px;
-  min-height: 30px;
-  padding: 4px 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.output-row-copy:hover {
-  color: var(--accent-bright);
-  background: var(--accent-soft);
-  border-color: var(--border-strong);
-}
 
 .output-rule-dialog {
   width: min(520px, calc(100vw - 32px));
