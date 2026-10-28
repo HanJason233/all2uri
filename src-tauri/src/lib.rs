@@ -20,6 +20,7 @@ use tokio::net::lookup_host;
 use tokio::sync::Notify;
 use url::Url;
 
+mod node_test;
 mod region_lookup;
 
 const DEFAULT_MAX_REDIRECTS: usize = 10;
@@ -728,7 +729,8 @@ pub fn run() {
             capture_full_screens,
             save_text_file,
             region_lookup::lookup_node_regions,
-            region_lookup::lookup_cloudflare_entries
+            region_lookup::lookup_cloudflare_entries,
+            node_test::run_node_test
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -108,6 +108,7 @@
               <div>
                 <button class="secondary-button" id="output-column-reset-button" type="button" title="恢复初始列宽">初始化列宽</button>
                 <button class="secondary-button" id="output-filter-button" type="button" aria-haspopup="dialog">设置筛选</button>
+                <button class="secondary-button" id="node-test-button" type="button" disabled>节点测试</button>
                 <button class="secondary-button" id="copy-button" type="button" disabled>复制结果</button>
                 <button class="primary-button compact" id="save-button" type="button" disabled>
                   <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -334,6 +335,63 @@
           <button class="secondary-button" id="output-filter-dialog-cancel" type="button">取消</button>
           <button class="primary-button compact" id="output-filter-dialog-save" type="button">应用筛选</button>
         </footer>
+      </div>
+    </dialog>
+
+    <dialog class="output-rule-dialog node-test-dialog" id="node-test-dialog" aria-labelledby="node-test-dialog-title">
+      <div class="output-rule-dialog-content node-test-dialog-content">
+        <header class="output-rule-dialog-header">
+          <div>
+            <h2 id="node-test-dialog-title">节点测试</h2>
+            <p><span id="node-test-scope">当前筛选结果：0 个节点</span></p>
+          </div>
+          <button class="output-rule-dialog-close" id="node-test-close" type="button" aria-label="关闭节点测试">×</button>
+        </header>
+        <div class="node-test-controls">
+          <label class="node-test-control">
+            <span>测试项目</span>
+            <select id="node-test-kind">
+              <option value="tcping">TCPing</option>
+              <option value="url204">204 URL</option>
+              <option value="bandwidth">带宽测速</option>
+              <option value="linkType">链路类型</option>
+              <option value="unlock">流媒体与 AI 解锁</option>
+            </select>
+          </label>
+          <label class="node-test-control">
+            <span>并发</span>
+            <input id="node-test-concurrency" type="number" min="1" max="8" step="1" value="3" />
+          </label>
+          <label class="node-test-control">
+            <span>超时 (ms)</span>
+            <input id="node-test-timeout" type="number" min="1000" max="120000" step="1000" value="10000" />
+          </label>
+          <label class="node-test-control" id="node-test-url-control">
+            <span>测试地址</span>
+            <input id="node-test-url" type="url" spellcheck="false" />
+          </label>
+          <label class="node-test-control" id="node-test-duration-control">
+            <span>测量时长 (ms)</span>
+            <input id="node-test-duration" type="number" min="1000" max="60000" step="1000" value="3000" />
+          </label>
+        </div>
+        <p class="node-test-description" id="node-test-description"></p>
+        <div class="node-test-actions">
+          <button class="primary-button compact" id="node-test-start" type="button">开始测试</button>
+          <button class="secondary-button" id="node-test-cancel" type="button" disabled>取消</button>
+          <span class="node-test-status" id="node-test-status" role="status" aria-live="polite"></span>
+        </div>
+        <div class="node-test-progress" id="node-test-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
+          <span id="node-test-progress-bar"></span>
+        </div>
+        <div class="node-test-results-wrap">
+          <table class="node-test-results">
+            <thead>
+              <tr><th>节点</th><th>入口</th><th>结果</th></tr>
+            </thead>
+            <tbody id="node-test-results-body"></tbody>
+          </table>
+        </div>
       </div>
     </dialog>
 

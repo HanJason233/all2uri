@@ -6,7 +6,8 @@ import { detectSubscriptionInput } from "./core/subscription-import/index.ts";
 import { convertSourcesInWorker } from "./core/worker-client.ts";
 import { diagnostic } from "./core/diagnostics/index.ts";
 import type { Diagnostic } from "./core/diagnostics/index.ts";
-import type { ProxyProtocol } from "./core/model/proxy-node.ts";
+import type { ProxyNode, ProxyProtocol } from "./core/model/proxy-node.ts";
+import { initNodeTestUi, refreshNodeTestButton } from "./node-test.ts";
 import {
   countryCodeFromNodeName,
   countryNameForCode,
@@ -45,6 +46,7 @@ interface CategorizedOutput {
   uri: string;
   countryCode: string | null;
   isCloudflare: boolean | null;
+  node: ProxyNode;
 }
 
 type CloudflareEntryFilter = "all" | "yes" | "no";
@@ -1561,6 +1563,7 @@ function renderOutputFilter() {
   dom.cloudflareDetectionConcurrency.disabled = running || cloudflareDetectionState === "running";
   dom.copyButton.disabled = uris.length === 0;
   dom.saveButton.disabled = uris.length === 0;
+  refreshNodeTestButton(uris.length > 0);
 }
 
 async function enrichOutputRegions() {
@@ -1675,6 +1678,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
       uri: item.uri!,
       countryCode: null,
       isCloudflare: null,
+      node: item.node,
     }));
   outputUris = outputEntries.map(item => item.uri);
   duplicateCount = result.stats.duplicates;
@@ -2268,6 +2272,16 @@ function bindEvents() {
     if (!dom.validation.hidden) setValidation();
   });
 
+  initNodeTestUi({
+    getEntries: () => getFilteredOutputEntries().map(entry => ({
+      id: entry.id,
+      name: entry.name,
+      server: entry.server,
+      port: entry.port,
+      protocol: entry.protocol,
+      node: entry.node,
+    })),
+  });
   renderRegionLookupSettings();
   renderOutputFilter();
   bindPanelResizers();

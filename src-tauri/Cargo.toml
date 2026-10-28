@@ -25,8 +25,9 @@ base64 = "0.22"
 screenshots = "0.8.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["gzip", "brotli", "deflate"] }
+reqwest = { version = "0.12", features = ["gzip", "brotli", "deflate", "stream"] }
 url = "2.5.8"
+ipnet = "2"
 percent-encoding = "2.3.2"
 tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 

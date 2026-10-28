@@ -1483,3 +1483,208 @@ body.resizing-output-columns * {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Node test dialog */
+.node-test-dialog {
+  width: min(920px, calc(100vw - 32px));
+}
+
+.node-test-dialog-content {
+  max-height: calc(100vh - 32px);
+}
+
+.node-test-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 22px 0;
+}
+
+.node-test-control {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.node-test-control[hidden],
+.node-test-progress[hidden] {
+  display: none;
+}
+
+.node-test-control input,
+.node-test-control select {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 9px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.node-test-control input:focus,
+.node-test-control select:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 0;
+}
+
+.node-test-description {
+  margin: 12px 22px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.node-test-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 14px 22px 12px;
+}
+
+.node-test-actions .primary-button,
+.node-test-actions .secondary-button {
+  min-height: 34px;
+  padding: 0 13px;
+  font-size: 11px;
+  border-radius: 2px;
+}
+
+.node-test-status {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.node-test-progress {
+  height: 6px;
+  margin: 0 22px 12px;
+  overflow: hidden;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.node-test-progress > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+
+.node-test-results-wrap {
+  flex: 1;
+  min-height: 180px;
+  margin: 0 22px 22px;
+  overflow: auto;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.node-test-results {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+.node-test-results th,
+.node-test-results td {
+  padding: 9px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.node-test-results th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-raised);
+}
+
+.node-test-results th:nth-child(1) { width: 28%; }
+.node-test-results th:nth-child(2) { width: 30%; }
+.node-test-results th:nth-child(3) { width: 42%; }
+
+.node-test-results tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.node-test-results tbody tr[data-state="running"] {
+  background: var(--accent-soft);
+}
+
+.node-test-results tbody tr[data-state="error"] .node-test-result {
+  color: var(--danger, #b42318);
+}
+
+.node-test-results strong,
+.node-test-results small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-test-results small {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.node-test-result {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.node-test-service-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.node-test-service-badge {
+  padding: 2px 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.node-test-service-badge.state-unlocked {
+  color: var(--accent-bright);
+  background: var(--accent-soft);
+  border-color: rgba(0, 120, 212, 0.28);
+}
+
+.node-test-service-badge.state-blocked,
+.node-test-service-badge.state-error {
+  color: var(--danger, #b42318);
+}
+
+.node-test-service-badge.state-warning,
+.node-test-service-badge.state-partial {
+  color: var(--warning);
+}
+
+@media (max-width: 760px) {
+  .node-test-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

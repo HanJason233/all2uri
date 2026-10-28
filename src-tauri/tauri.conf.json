@@ -29,7 +29,8 @@
     "resources": [
       "resources/geoip.dat",
       "resources/GEOIP-NOTICE.txt",
-      "resources/GEOIP-LICENSE.txt"
+      "resources/GEOIP-LICENSE.txt",
+      "resources/sing-box.exe"
     ],
     "shortDescription": "all2uri",
     "longDescription": "all2uri",
