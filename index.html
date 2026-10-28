@@ -91,6 +91,7 @@
               </div>
               <div class="output-actions-stack">
                 <div class="node-test-toolbar">
+                  <button class="primary-button compact node-test-button" id="node-test-all-button" type="button" disabled>一键测试</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="tcping" type="button" disabled>TCPing</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="url204" type="button" disabled>204 URL</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="bandwidth" type="button" disabled>传输质量</button>
@@ -246,6 +247,11 @@
           <section class="settings-section" aria-labelledby="settings-node-test-title">
             <h3 id="settings-node-test-title">节点测试</h3>
             <p class="settings-warning">测试参数保存在本机。并发选择“%”时，按当前筛选节点数计算。</p>
+
+            <details class="test-settings-group" open>
+              <summary>一键测试项目</summary>
+              <div class="test-service-options" id="node-test-one-click-options" role="group" aria-label="一键测试项目"></div>
+            </details>
 
             <details class="test-settings-group" open>
               <summary>TCPing</summary>
