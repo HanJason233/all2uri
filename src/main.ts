@@ -66,8 +66,6 @@ interface OutputFilter {
   cloudflareEntry: CloudflareEntryFilter;
 }
 
-type OutputTableView = "speed" | "unlock" | "nodes";
-
 interface OutputTableColumn {
   key: string;
   label: string;
@@ -139,7 +137,7 @@ const OUTPUT_COLUMN_DEFAULT_WIDTHS: Record<string, number> = {
   protocol: 100,
   server: 190,
   port: 72,
-  region: 105,
+  region: 150,
   entry: 92,
   rtt: 110,
   http: 120,
@@ -563,7 +561,6 @@ let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
 let outputColumnWidths = loadOutputColumnWidths();
 let outputColumnResizeState: OutputColumnResizeState | null = null;
-let outputTableView: OutputTableView = "speed";
 let renderedOutputColumns: OutputTableColumn[] = [];
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
@@ -1711,37 +1708,12 @@ function outputTableColumns(): OutputTableColumn[] {
       entry => textCell(getProtocolLabel(entry.protocol), "output-table-protocol-cell"), "is-centered"),
   ];
 
-  if (outputTableView === "nodes") {
-    return [
-      ...common,
-      makeColumn("server", "地址", OUTPUT_COLUMN_DEFAULT_WIDTHS.server, entry => textCell(entry.server || "—", "output-table-ip"), "is-left"),
-      makeColumn("port", "端口", OUTPUT_COLUMN_DEFAULT_WIDTHS.port, entry => textCell(`${entry.port}`, "output-table-port"), "is-centered"),
-      makeColumn("region", "节点地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.region, regionCell, "is-centered"),
-      makeColumn("entry", "入口类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.entry, entryTypeCell, "is-centered"),
-    ];
-  }
-
   const measurements = [
     makeColumn("rtt", "延迟 RTT", OUTPUT_COLUMN_DEFAULT_WIDTHS.rtt,
       entry => measureCell(entry.id, "tcping", "latencyMs"), "is-centered"),
     makeColumn("http", "HTTP 延迟", OUTPUT_COLUMN_DEFAULT_WIDTHS.http,
       entry => measureCell(entry.id, "url204", "latencyMs"), "is-centered"),
   ];
-
-  if (outputTableView === "speed") {
-    return [
-      ...common,
-      ...measurements,
-      makeColumn("average", "平均速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.average,
-        entry => speedCell(entry.id, "downloadMbps"), "is-centered"),
-      makeColumn("peak", "最大速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.peak,
-        entry => speedCell(entry.id, "downloadMaxMbps"), "is-centered"),
-      makeColumn("perSecond", "每秒速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.perSecond,
-        entry => speedSamplesCell(entry.id), "is-centered"),
-      makeColumn("linkType", "链路类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.linkType,
-        entry => linkTypeCell(entry.id), "is-centered"),
-    ];
-  }
 
   const services = nodeTestController?.getUnlockServices() ?? [];
   const leadingServiceIds = ["netflix", "youtube", "disney", "tiktok", "chatgpt", "gemini", "claude"];
@@ -1752,15 +1724,38 @@ function outputTableColumns(): OutputTableColumn[] {
   const additionalServices = services.filter(service => !leadingIds.has(service.id));
   return [
     ...common,
-    ...measurements,
-    ...leadingServices.map(service => serviceColumn(service)),
-    makeColumn("ipRisk", "IP 风险", OUTPUT_COLUMN_DEFAULT_WIDTHS.ipRisk,
-      entry => ipRiskCell(entry.id), "is-centered"),
+    makeColumn("server", "地址", OUTPUT_COLUMN_DEFAULT_WIDTHS.server,
+      entry => textCell(entry.server || "—", "output-table-ip"), "is-left"),
+    makeColumn("port", "端口", OUTPUT_COLUMN_DEFAULT_WIDTHS.port,
+      entry => textCell(`${entry.port}`, "output-table-port"), "is-centered"),
     makeColumn("region", "节点地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.region, regionCell, "is-centered"),
+    makeColumn("entry", "入口类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.entry, entryTypeCell, "is-centered"),
+    ...measurements,
+    makeColumn("average", "平均速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.average,
+      entry => speedCell(entry.id, "downloadMbps"), "is-centered"),
+    makeColumn("peak", "最大速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.peak,
+      entry => speedCell(entry.id, "downloadMaxMbps"), "is-centered"),
+    makeColumn("perSecond", "每秒速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.perSecond,
+      entry => speedSamplesCell(entry.id), "is-centered"),
     makeColumn("linkType", "链路类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.linkType,
       entry => linkTypeCell(entry.id), "is-centered"),
+    ...leadingServices.map(service => serviceColumn(service)),
     ...additionalServices.map(service => serviceColumn(service)),
+    makeColumn("ipRisk", "IP 风险", OUTPUT_COLUMN_DEFAULT_WIDTHS.ipRisk,
+      entry => ipRiskCell(entry.id), "is-centered", entries => ipRiskSummaryCell(entries)),
   ];
+}
+
+function ipRiskSummaryCell(entries: CategorizedOutput[]): HTMLTableCellElement {
+  const risks = entries
+    .map(entry => nodeTestController?.getResult(entry.id, "unlock"))
+    .filter((state): state is NonNullable<ReturnType<NodeTestController["getResult"]>> => state?.state === "done" && state.result?.success === true)
+    .map(state => state.result?.unlock?.find(item => item.id === "chatgpt")?.ipRisk)
+    .filter((risk): risk is "low" | "high" => risk === "low" || risk === "high");
+  if (!risks.length) return textCell("—", "output-table-summary-cell");
+  const lowRisk = risks.filter(risk => risk === "low").length;
+  const percent = Math.round(lowRisk / risks.length * 100);
+  return textCell(`${percent}%`, "output-table-summary-cell is-summary-unlocked", `${lowRisk}/${risks.length} 个节点为低风险`);
 }
 
 function serviceColumn(service: UnlockServiceDefinition): OutputTableColumn {
@@ -1787,7 +1782,6 @@ function serviceColumn(service: UnlockServiceDefinition): OutputTableColumn {
 
 function renderOutputTableHeader(entries: CategorizedOutput[]) {
   renderedOutputColumns = outputTableColumns();
-  dom.outputTable.dataset.view = outputTableView;
 
   const colElements = renderedOutputColumns.map(column => {
     const col = document.createElement("col");
@@ -1822,7 +1816,7 @@ function renderOutputTableHeader(entries: CategorizedOutput[]) {
   headerRow.append(fillerHeader);
   dom.outputTableHead.replaceChildren(headerRow);
 
-  const showSummary = outputTableView === "unlock" && entries.some(entry => nodeTestController?.getResult(entry.id, "unlock")?.state === "done");
+  const showSummary = entries.some(entry => nodeTestController?.getResult(entry.id, "unlock")?.state === "done");
   if (!showSummary) {
     dom.outputTableFoot.replaceChildren();
   } else {
@@ -1841,12 +1835,6 @@ function renderOutputTableHeader(entries: CategorizedOutput[]) {
     dom.outputTableFoot.replaceChildren(summaryRow);
   }
 
-  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-output-table-view]")) {
-    const active = button.dataset.outputTableView === outputTableView;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", String(active));
-    button.tabIndex = active ? 0 : -1;
-  }
   applyOutputColumnWidths();
 }
 
@@ -1859,12 +1847,6 @@ function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTabl
   fillerCell.setAttribute("aria-hidden", "true");
   row.append(fillerCell);
   return row;
-}
-
-function setOutputTableView(view: OutputTableView) {
-  if (outputTableView === view) return;
-  outputTableView = view;
-  renderOutputFilter();
 }
 
 function removeOutputEntries(entryIds: string[]): void {
@@ -2551,12 +2533,6 @@ function bindEvents() {
   });
   dom.outputFilterButton.addEventListener("click", openOutputFilterDialog);
   dom.outputColumnResetButton.addEventListener("click", resetOutputColumnWidths);
-  document.querySelectorAll<HTMLButtonElement>("[data-output-table-view]").forEach(button => {
-    button.addEventListener("click", () => {
-      const view = button.dataset.outputTableView;
-      if (view === "speed" || view === "unlock" || view === "nodes") setOutputTableView(view);
-    });
-  });
   dom.outputFilterDialogClose.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
   dom.outputFilterDialogSave.addEventListener("click", saveOutputFilterDialog);
@@ -2631,10 +2607,7 @@ function bindEvents() {
     })),
     onResultsChanged: () => renderOutputFilter(),
     onDeleteEntries: removeOutputEntries,
-    onTestStarted: kind => {
-      outputTableView = kind === "unlock" ? "unlock" : "speed";
-      renderOutputFilter();
-    },
+    onTestStarted: () => renderOutputFilter(),
   });
   renderRegionLookupSettings();
   renderOutputFilter();
