@@ -1095,14 +1095,14 @@ body.resizing-output-columns * {
 .output-table-port {
   color: var(--text-secondary);
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 12px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 
 .output-table-ip {
   color: var(--text-secondary);
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
 }
 
