@@ -1260,6 +1260,12 @@ function updateProgress(done: number, total: number) {
     : `已处理 ${done} / ${total} 个来源`;
 }
 
+function updateNodeTestProgress(done: number, total: number, label: string) {
+  const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+  dom.progressBar.style.width = `${percent}%`;
+  dom.progressCopy.textContent = label + " · " + done + " / " + total + " 个节点 · " + percent + "%";
+}
+
 function appendConversionDiagnostics(result: ConversionResult) {
   const labels = new Map(sourceResults.map(source => [source.kind === "local" ? "local" : source.sourceId, source.kind === "local" ? "本地内容" : displayUrl(source.url)]));
   const visible = result.diagnostics.slice(0, 40);
@@ -2763,6 +2769,7 @@ function bindEvents() {
     onResultsChanged: scheduleOutputFilterRender,
     onDeleteEntries: removeOutputEntries,
     onTestStarted: scheduleOutputFilterRender,
+    onTestProgress: updateNodeTestProgress,
   });
   renderRegionLookupSettings();
   renderOutputFilter();

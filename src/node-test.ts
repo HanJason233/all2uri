@@ -104,6 +104,7 @@ interface NodeTestUiOptions {
   onResultsChanged: () => void;
   onDeleteEntries: (entryIds: string[]) => void;
   onTestStarted: (kind: NodeTestKind) => void;
+  onTestProgress: (done: number, total: number, label: string) => void;
 }
 
 const DEFAULT_204_URL = "https://www.google.com/generate_204";
@@ -615,9 +616,11 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
 
     running = true;
     refreshNodeTestButtons(true);
-    status.textContent = batch
-      ? `一键测试 ${batch.index}/${batch.total}：正在测试 ${kindLabel(kind)}`
-      : `\u6b63\u5728\u6d4b\u8bd5 ${kindLabel(kind)}`;
+    status.textContent = "";
+    const progressLabel = batch
+      ? "一键测试 " + batch.index + "/" + batch.total + " · " + kindLabel(kind)
+      : "正在测试 " + kindLabel(kind);
+    options.onTestProgress(0, entries.length, progressLabel);
     for (const entry of entries) {
       setResult(entry.id, kind, { state: "running" });
     }
@@ -684,9 +687,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
           failed++;
         }
         completed++;
-        status.textContent = batch
-          ? `一键测试 ${batch.index}/${batch.total}：${kindLabel(kind)} ${completed}/${entries.length}`
-          : `\u5df2\u5b8c\u6210 ${completed}/${entries.length}`;
+        options.onTestProgress(completed, entries.length, progressLabel);
         options.onResultsChanged();
       }
     };
@@ -712,6 +713,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     running = false;
     refreshNodeTestButtons(options.getEntries().length > 0);
     const deleted = deleteIds.length ? `\uff0c\u5df2\u5220\u9664 ${deleteIds.length} \u4e2a\u8282\u70b9` : "";
+    options.onTestProgress(entries.length, entries.length, kindLabel(kind) + " 测试完成");
     status.textContent = batch
       ? `一键测试 ${batch.index}/${batch.total} 完成：成功 ${succeeded}，失败 ${failed}${deleted}`
       : `\u6d4b\u8bd5\u5b8c\u6210\uff1a\u6210\u529f ${succeeded}\uff0c\u5931\u8d25 ${failed}${deleted}`;
