@@ -1503,11 +1503,21 @@ body.resizing-output-columns * {
 .output-actions-stack {
   display: flex;
   flex: 0 1 auto;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
   min-width: 0;
   max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.output-actions-stack > .node-test-toolbar,
+.output-actions-stack > .output-utility-actions {
+  flex: 0 0 auto;
+  max-width: none;
+  overflow: visible;
 }
 
 .output-utility-actions {
@@ -1684,7 +1694,7 @@ body.resizing-output-columns * {
   }
 
   .output-actions-stack {
-    align-items: flex-end;
+    align-items: center;
   }
 }
 

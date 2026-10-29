@@ -1582,7 +1582,7 @@ function measureCell(entryId: string, kind: "tcping" | "url204", valueKey: "late
   else if (state.result?.[valueKey] !== undefined) {
     const latency = state.result[valueKey]!;
     cell.textContent = `${latency}ms`;
-    cell.title = `${kind === "tcping" ? "TCP RTT" : "HTTP 延迟"}：${latency}ms${state.result.statusCode ? ` · HTTP ${state.result.statusCode}` : ""}`;
+    cell.title = `${kind === "tcping" ? "TCPing RTT" : "204 URL 延迟"}：${latency}ms${state.result.statusCode ? ` · HTTP ${state.result.statusCode}` : ""}`;
     setTableCellColor(cell, latency > 0 ? latencyCellColor(latency) : TABLE_CELL_COLORS.failure);
   } else if (state.state === "done") {
     setTableCellColor(cell, TABLE_CELL_COLORS.neutral);
@@ -1774,9 +1774,9 @@ function outputTableColumns(): OutputTableColumn[] {
   ];
 
   const measurements = [
-    makeColumn("rtt", "延迟 RTT", OUTPUT_COLUMN_DEFAULT_WIDTHS.rtt,
+    makeColumn("rtt", "TCPing 延迟", OUTPUT_COLUMN_DEFAULT_WIDTHS.rtt,
       entry => measureCell(entry.id, "tcping", "latencyMs"), "is-centered"),
-    makeColumn("http", "HTTP 延迟", OUTPUT_COLUMN_DEFAULT_WIDTHS.http,
+    makeColumn("http", "204 URL 延迟", OUTPUT_COLUMN_DEFAULT_WIDTHS.http,
       entry => measureCell(entry.id, "url204", "latencyMs"), "is-centered"),
   ];
 
