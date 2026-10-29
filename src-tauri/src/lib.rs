@@ -820,7 +820,6 @@ pub fn run() {
             save_xlsx_file,
             save_png_file,
             region_lookup::lookup_node_regions,
-            region_lookup::lookup_cloudflare_entries,
             node_test::run_node_test
         ])
         .run(tauri::generate_context!())

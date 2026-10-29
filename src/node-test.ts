@@ -94,6 +94,7 @@ interface TestSettings {
 
 export interface NodeTestController {
   getResult(entryId: string, kind: NodeTestKind): NodeTestResultState | undefined;
+  clearResults(): void;
   getUnlockServices(): UnlockServiceDefinition[];
   isRunning(): boolean;
 }
@@ -749,6 +750,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
 
   return {
     getResult,
+    clearResults: () => resultMap.clear(),
     getUnlockServices: () => readSettings().unlockTestIds
       .map(id => UNLOCK_SERVICES.find(service => service.id === id))
       .filter((service): service is UnlockServiceDefinition => service !== undefined),

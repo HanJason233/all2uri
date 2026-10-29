@@ -233,17 +233,6 @@
               <span>包含有损结果</span>
               <input class="settings-checkbox" id="include-lossy-output" type="checkbox" />
             </label>
-            <label class="settings-row">
-              <span>CF 入口检测</span>
-              <input class="settings-checkbox" id="cloudflare-detection-enabled" type="checkbox" checked />
-            </label>
-            <label class="settings-row">
-              <span>CF 检测并发</span>
-              <span class="settings-value">
-                <input id="cloudflare-detection-concurrency" class="settings-control settings-number" type="number" min="1" step="1" value="64" inputmode="numeric" />
-                <span>个</span>
-              </span>
-            </label>
           </section>
 
           <section class="settings-section" aria-labelledby="settings-node-test-title">
@@ -486,23 +475,23 @@
           <section class="output-rule-section" aria-labelledby="output-filter-cf-title">
             <div class="output-rule-section-heading">
               <div class="output-filter-section-title">
-                <h3 id="output-filter-cf-title">服务器入口</h3>
+                <h3 id="output-filter-cf-title">链路入口</h3>
                 <label class="output-filter-toggle">
-                  <input id="output-filter-cf-enabled" type="checkbox" aria-label="启用服务器入口筛选" />
+                  <input id="output-filter-cf-enabled" type="checkbox" aria-label="启用 CF 入口筛选" />
                   <span>启用</span>
                 </label>
               </div>
               <span id="output-filter-cf-summary">未启用</span>
             </div>
             <label class="output-rule-cf-select">
-              <span>是否 CF 入口</span>
+              <span>CF 入口类型</span>
               <select id="output-filter-cf-entry">
                 <option value="all">请选择入口类型</option>
-                <option value="yes">是</option>
-                <option value="no">否</option>
+                <option value="yes">CF 入口</option>
+                <option value="no">非 CF 入口</option>
               </select>
             </label>
-            <p class="output-rule-cf-description">选择“是”只显示 CF 入口，选择“否”只显示非 CF 入口；不检测代理出口。</p>
+            <p class="output-rule-cf-description">此筛选使用链路类型检测中的 CDN 提供商结果；请先运行链路类型检测。</p>
           </section>
         </div>
         <footer class="output-rule-dialog-actions">

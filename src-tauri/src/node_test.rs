@@ -27,8 +27,17 @@ const BANDWIDTH_WARMUP_MS: u64 = 1_000;
 const DEFAULT_204_URL: &str = "https://www.google.com/generate_204";
 const DEFAULT_204_BACKUP_URL: &str = "https://www.gstatic.com/generate_204";
 const DEFAULT_BANDWIDTH_URL: &str = "https://speed.cloudflare.com/__down?bytes=25000000";
-const EXIT_IP_URL: &str = "https://api.ipify.org";
+const EXIT_IP_URLS_IPV4_FIRST: [&str; 2] = [
+    "https://api.ipify.org",
+    "https://api64.ipify.org",
+];
+const EXIT_IP_URLS_IPV6_FIRST: [&str; 3] = [
+    "https://api6.ipify.org",
+    "https://api64.ipify.org",
+    "https://api.ipify.org",
+];
 
+// 链路类型检测用入口网段分类 CDN 中转，并在结果中标注提供商。
 const CDN_NETS: &[(&str, &str)] = &[
     ("Cloudflare", "103.21.244.0/22"),
     ("Cloudflare", "103.22.200.0/22"),
@@ -45,6 +54,13 @@ const CDN_NETS: &[(&str, &str)] = &[
     ("Cloudflare", "190.93.240.0/20"),
     ("Cloudflare", "197.234.240.0/22"),
     ("Cloudflare", "198.41.128.0/17"),
+    ("Cloudflare", "2400:cb00::/32"),
+    ("Cloudflare", "2606:4700::/32"),
+    ("Cloudflare", "2803:f800::/32"),
+    ("Cloudflare", "2405:b500::/32"),
+    ("Cloudflare", "2405:8100::/32"),
+    ("Cloudflare", "2a06:98c0::/29"),
+    ("Cloudflare", "2c0f:f248::/32"),
     ("CloudFront", "13.32.0.0/15"),
     ("CloudFront", "13.224.0.0/14"),
     ("CloudFront", "52.84.0.0/15"),
@@ -525,17 +541,43 @@ fn cdn_provider(ip: IpAddr) -> Option<&'static str> {
 
 async fn test_link_type(client: &Client, server: &str, port: u16) -> NodeTestResponse {
     let entries = resolve_entries(server, port).await;
-    let exit = match client.get(EXIT_IP_URL).send().await {
-        Ok(response) => response.text().await.ok().map(|value| value.trim().to_string()).filter(|value| is_ip(value)),
-        Err(error) => return NodeTestResponse::error(format!("出口 IP 查询失败：{error}")),
+    if entries.is_empty() {
+        return NodeTestResponse::error("无法解析节点服务器入口地址");
+    }
+    let entry_addr = entries.iter().filter_map(|value| value.parse::<IpAddr>().ok()).collect::<Vec<_>>();
+    let prefer_ipv6 = entry_addr.iter().all(|address| address.is_ipv6());
+    // IPv6 节点优先查询 IPv6 出口，避免把同地址族的直连误判为中转。
+    let targets: &[&str] = if prefer_ipv6 {
+        &EXIT_IP_URLS_IPV6_FIRST
+    } else {
+        &EXIT_IP_URLS_IPV4_FIRST
     };
-    let Some(exit_ip) = exit else {
+    let mut exit_ip = None;
+    for url in targets {
+        let Ok(response) = client.get(*url).send().await else {
+            continue;
+        };
+        if response.status().as_u16() != 200 {
+            continue;
+        }
+        if let Ok(body) = response.text().await {
+            let value = body.trim();
+            if is_ip(value) {
+                exit_ip = Some(value.to_string());
+                break;
+            }
+        }
+    }
+    let Some(exit_ip) = exit_ip else {
         return NodeTestResponse::error("无法获取有效出口 IP");
     };
     let exit_addr = exit_ip.parse::<IpAddr>().ok();
-    let entry_addr = entries.iter().filter_map(|value| value.parse::<IpAddr>().ok()).collect::<Vec<_>>();
     let direct = exit_addr.is_some_and(|value| entry_addr.contains(&value));
-    let provider = entry_addr.iter().find_map(|ip| cdn_provider(*ip));
+    let provider = if direct {
+        None
+    } else {
+        entry_addr.iter().find_map(|ip| cdn_provider(*ip))
+    };
     let link_type = if direct {
         "direct"
     } else if provider.is_some() {

@@ -1130,28 +1130,6 @@ body.resizing-output-columns * {
   font-weight: 500;
 }
 
-.output-entry-badge {
-  display: inline-block;
-  padding: 3px 6px;
-  color: var(--text-muted);
-  font-size: 11px;
-  white-space: nowrap;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-
-.output-entry-badge.is-cloudflare {
-  color: var(--accent-bright);
-  background: var(--accent-soft);
-  border-color: rgba(0, 120, 212, 0.28);
-}
-
-.output-entry-badge.is-non-cloudflare {
-  color: var(--warning);
-}
-
-
 .output-rule-dialog {
   width: min(520px, calc(100vw - 32px));
   max-width: 520px;
