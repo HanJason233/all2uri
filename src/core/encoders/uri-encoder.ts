@@ -49,7 +49,7 @@ const PROTOCOL_FIELDS: Record<ProxyNode["protocol"], string[]> = {
   vmess: ["uuid", "alterId", "alter-id", "cipher", "headerType", "header_type", "packet-encoding", "packet_encoding", ...TLS_FIELDS, ...TRANSPORT_FIELDS],
   vless: ["uuid", "headerType", "header_type", ...TLS_FIELDS, ...TRANSPORT_PROTOCOL_FIELDS],
   trojan: ["password", ...TLS_FIELDS, ...TRANSPORT_PROTOCOL_FIELDS],
-  hysteria2: ["password", "auth", "auth-str", "ports", "obfs", "obfs-password", "obfs_password", "hop-interval", "hop_interval", ...TLS_FIELDS],
+  hysteria2: ["password", "auth", "auth-str", "ports", "mport", "obfs", "obfs-password", "obfs_password", "hop-interval", "hop_interval", ...TLS_FIELDS],
   anytls: ["password", "idle-session-check-interval", "idle_session_check_interval", "idle-session-timeout", "idle_session_timeout", "min-idle-session", "min_idle_session", "max-idle-session", "max_idle_session", ...TLS_FIELDS],
   tuic: ["uuid", "password", "congestion-controller", "congestion_control", "udp-relay-mode", "udp_relay_mode", "reduce-rtt", "reduce_rtt", ...TLS_FIELDS],
   naive: ["username", "user", "password", "sni", "servername", "server_name", "skip-cert-verify", "skip_cert_verify", "allowInsecure", "insecure"],

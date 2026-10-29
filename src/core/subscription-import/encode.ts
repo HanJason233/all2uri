@@ -180,6 +180,7 @@ export function encodeNode(proxy: NodeMap, globalFingerprint = ""): string | nul
       const password = text(proxy, "password", "auth", "auth-str"); if (!password) return null;
       addTls(); put(query, "obfs", field(proxy, "obfs")); put(query, "obfs-password", field(proxy, "obfs-password", "obfs_password"));
       put(query, "hopInterval", field(proxy, "hop-interval", "hop_interval"));
+      put(query, "mport", field(proxy, "mport"));
       return finish("hysteria2", password, text(proxy, "ports") || port);
     }
     case "anytls": {

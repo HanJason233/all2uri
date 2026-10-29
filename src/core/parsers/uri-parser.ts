@@ -53,7 +53,7 @@ const URI_QUERY_KEYS = new Set([
   "record_fragment", "pinSHA256", "certificate_public_key_sha256", "minVersion", "maxVersion", "type", "path",
   "host", "serviceName", "ed", "eh", "xhttpOptions", "flow", "encryption", "packetEncoding", "packet_encoding",
   "headerType", "header_type", "spx",
-  "ports", "obfs", "obfs-password", "hopInterval", "idle_session_check_interval", "idle_session_timeout",
+  "ports", "mport", "obfs", "obfs-password", "hopInterval", "idle_session_check_interval", "idle_session_timeout",
   "min_idle_session", "max_idle_session", "congestion_control", "udp_relay_mode", "reduce_rtt", "publickey",
   "presharedkey", "address", "mtu", "reserved", "persistent_keepalive_interval", "jc", "jmin", "jmax", "s1",
   "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5", "id",
@@ -330,6 +330,8 @@ function parseStandard(uri: string, source: NodeSource, ordinal: number): UriPar
   commonSettings(settings, url.searchParams);
   if (protocol === "hysteria2") {
     set(settings, "ports", url.searchParams.get("ports") ?? undefined);
+    // mport 是部分 Hysteria2 客户端使用的端口跳跃查询参数，按独立字段保留。
+    set(settings, "mport", url.searchParams.get("mport") ?? undefined);
     set(settings, "obfs", url.searchParams.get("obfs") ?? undefined);
     set(settings, "obfs-password", url.searchParams.get("obfs-password") ?? undefined);
     set(settings, "hop-interval", url.searchParams.get("hopInterval") ?? undefined);
