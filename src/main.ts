@@ -25,6 +25,7 @@ import {
 import type { RegionLookupMethod } from "./core/location/region.ts";
 import type { ConversionResult, SourceDocument } from "./core/pipeline.ts";
 import { captureOutputTableSnapshot } from "./core/output-table-snapshot.ts";
+import { encodeProxyNode } from "./core/encoders/uri-encoder.ts";
 
 interface FetchedSubscription {
   content: string;
@@ -46,6 +47,7 @@ type ProcessingState = "idle" | "running" | "done" | "warning" | "error";
 interface CategorizedOutput {
   id: string;
   name: string;
+  originalName: string;
   server: string;
   port: number;
   protocol: ProxyProtocol;
@@ -61,6 +63,17 @@ interface OutputFilter {
   countries: string[];
   cloudflareEntryEnabled: boolean;
   cloudflareEntry: CloudflareEntryFilter;
+}
+
+interface BatchRenameSettings {
+  region: boolean;
+  linkType: boolean;
+  tcping: boolean;
+  url204: boolean;
+  averageSpeed: boolean;
+  peakSpeed: boolean;
+  unlockSummary: boolean;
+  keepOriginalName: boolean;
 }
 
 type CloudflareEntryFilter = "all" | "yes" | "no";
@@ -126,6 +139,17 @@ const OUTPUT_COLUMN_WIDTHS_STORAGE_KEY = "all2uri.output-table-column-widths.v2"
 const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
 const REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency";
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
+const BATCH_RENAME_SETTINGS_STORAGE_KEY = "all2uri.batch-rename-settings";
+const DEFAULT_BATCH_RENAME_SETTINGS: BatchRenameSettings = {
+  region: true,
+  linkType: true,
+  tcping: true,
+  url204: true,
+  averageSpeed: true,
+  peakSpeed: false,
+  unlockSummary: false,
+  keepOriginalName: true,
+};
 const OUTPUT_TABLE_ROW_HEIGHT_ESTIMATE = 41;
 const OUTPUT_TABLE_VIRTUALIZATION_THRESHOLD = 200;
 const OUTPUT_TABLE_OVERSCAN_ROWS = 8;
@@ -202,6 +226,37 @@ function loadGeoIpDatabasePath(): string {
     return window.localStorage.getItem(GEOIP_DATABASE_PATH_STORAGE_KEY) ?? "";
   } catch {
     return "";
+  }
+}
+
+function loadBatchRenameSettings(): BatchRenameSettings {
+  const fallback = DEFAULT_BATCH_RENAME_SETTINGS;
+  try {
+    const stored = window.localStorage.getItem(BATCH_RENAME_SETTINGS_STORAGE_KEY);
+    if (stored === null) return { ...fallback };
+    const parsed: unknown = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null) return { ...fallback };
+    const candidate = parsed as Partial<BatchRenameSettings>;
+    return {
+      region: typeof candidate.region === "boolean" ? candidate.region : fallback.region,
+      linkType: typeof candidate.linkType === "boolean" ? candidate.linkType : fallback.linkType,
+      tcping: typeof candidate.tcping === "boolean" ? candidate.tcping : fallback.tcping,
+      url204: typeof candidate.url204 === "boolean" ? candidate.url204 : fallback.url204,
+      averageSpeed: typeof candidate.averageSpeed === "boolean" ? candidate.averageSpeed : fallback.averageSpeed,
+      peakSpeed: typeof candidate.peakSpeed === "boolean" ? candidate.peakSpeed : fallback.peakSpeed,
+      unlockSummary: typeof candidate.unlockSummary === "boolean" ? candidate.unlockSummary : fallback.unlockSummary,
+      keepOriginalName: typeof candidate.keepOriginalName === "boolean" ? candidate.keepOriginalName : fallback.keepOriginalName,
+    };
+  } catch {
+    return { ...fallback };
+  }
+}
+
+function saveBatchRenameSettings(settings: BatchRenameSettings) {
+  try {
+    window.localStorage.setItem(BATCH_RENAME_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // 当前会话仍可使用重命名设置。
   }
 }
 
@@ -463,6 +518,15 @@ const dom = {
   outputSettingsButton: getElement<HTMLButtonElement>("output-settings-button"),
   outputSettingsDialog: getElement<HTMLDialogElement>("output-settings-dialog"),
   outputSettingsDialogClose: getElement<HTMLButtonElement>("output-settings-dialog-close"),
+  batchRenameButton: getElement<HTMLButtonElement>("batch-rename-button"),
+  batchRenameRegion: getElement<HTMLInputElement>("batch-rename-region"),
+  batchRenameLinkType: getElement<HTMLInputElement>("batch-rename-link-type"),
+  batchRenameTcping: getElement<HTMLInputElement>("batch-rename-tcping"),
+  batchRenameUrl204: getElement<HTMLInputElement>("batch-rename-url204"),
+  batchRenameAverageSpeed: getElement<HTMLInputElement>("batch-rename-average-speed"),
+  batchRenamePeakSpeed: getElement<HTMLInputElement>("batch-rename-peak-speed"),
+  batchRenameUnlockSummary: getElement<HTMLInputElement>("batch-rename-unlock-summary"),
+  batchRenameKeepOriginalName: getElement<HTMLInputElement>("batch-rename-keep-original-name"),
   outputFilterButton: getElement<HTMLButtonElement>("output-filter-button"),
   outputColumnResetButton: getElement<HTMLButtonElement>("output-column-reset-button"),
   outputFilterCount: getElement<HTMLSpanElement>("output-filter-count"),
@@ -532,6 +596,7 @@ let outputTableLastScrollTop = 0;
 let outputFilterRenderFrame: number | null = null;
 let nodeTestController: NodeTestController | null = null;
 let outputFilter = loadOutputFilter();
+let batchRenameSettings = loadBatchRenameSettings();
 let regionLookupMethods = loadRegionLookupMethods();
 let regionLookupConcurrency = loadRegionLookupConcurrency();
 let geoIpDatabasePath = loadGeoIpDatabasePath();
@@ -1976,6 +2041,104 @@ function captureOutputTableSnapshotForExport() {
   }
 }
 
+function buildBatchRenameName(entry: CategorizedOutput): string | null {
+  const parts: string[] = [];
+  const settings = batchRenameSettings;
+
+  if (settings.region && entry.countryCode && entry.countryCode !== UNKNOWN_REGION_CODE) {
+    parts.push(countryNameForCode(entry.countryCode));
+  }
+
+  if (settings.linkType) {
+    const state = nodeTestController?.getResult(entry.id, "linkType");
+    if (state?.state === "running") parts.push("链路检测中");
+    else if (state?.state === "error" || state?.result?.success === false) parts.push("链路失败");
+    else if (state?.result?.linkType === "direct") parts.push("直连");
+    else if (state?.result?.linkType === "cdn-relay" && state.result.cdnProvider === "Cloudflare") parts.push("CF中转");
+    else if (state?.result?.linkType === "cdn-relay") parts.push("CDN中转");
+    else if (state?.result?.linkType === "relay") parts.push("中转");
+  }
+
+  if (settings.tcping) {
+    const state = nodeTestController?.getResult(entry.id, "tcping");
+    if (state?.state === "running") parts.push("TCP检测中");
+    else if (state?.state === "error" || state?.result?.success === false) parts.push("TCP失败");
+    else if (state?.result?.latencyMs !== undefined) parts.push(`TCP ${state.result.latencyMs}ms`);
+  }
+
+  if (settings.url204) {
+    const state = nodeTestController?.getResult(entry.id, "url204");
+    if (state?.state === "running") parts.push("204检测中");
+    else if (state?.state === "error" || state?.result?.success === false) parts.push("204失败");
+    else if (state?.result?.latencyMs !== undefined) parts.push(`204 ${state.result.latencyMs}ms`);
+  }
+
+  if (settings.averageSpeed || settings.peakSpeed) {
+    const state = nodeTestController?.getResult(entry.id, "bandwidth");
+    if (state?.state === "running") parts.push("测速中");
+    else if (state?.state === "error" || state?.result?.success === false) parts.push("测速失败");
+    else if (state?.result) {
+      if (settings.averageSpeed && state.result.downloadMbps !== undefined) {
+        parts.push(`均 ${formatSpeed(state.result.downloadMbps)}`);
+      }
+      if (settings.peakSpeed) {
+        const peak = state.result.downloadMaxMbps ?? state.result.downloadMbps;
+        if (peak !== undefined) parts.push(`峰 ${formatSpeed(peak)}`);
+      }
+    }
+  }
+
+  if (settings.unlockSummary) {
+    const state = nodeTestController?.getResult(entry.id, "unlock");
+    if (state?.state === "running") parts.push("解锁检测中");
+    else if (state?.state === "error" || state?.result?.success === false) parts.push("解锁失败");
+    else if (state?.result?.unlock) {
+      const services = state.result.unlock;
+      const unlocked = services.filter(item => item.state === "unlocked").length;
+      parts.push(`解锁 ${unlocked}/${services.length}`);
+    }
+  }
+
+  if (settings.keepOriginalName) parts.push(entry.originalName || entry.name);
+  const name = [...new Set(parts.map(part => part.trim()).filter(Boolean))].join(" · ");
+  return name || null;
+}
+
+function batchRenameCurrentOutput() {
+  if (running || regionLookupState === "running" || nodeTestController?.isRunning()) {
+    showToast("请等待当前转换、地区识别或节点测试完成", true);
+    return;
+  }
+  const entries = getFilteredOutputEntries();
+  if (entries.length === 0) return;
+
+  let renamed = 0;
+  let failed = 0;
+  for (const entry of entries) {
+    const name = buildBatchRenameName(entry);
+    if (!name || name === entry.name) continue;
+    const node: ProxyNode = { ...entry.node, name } as ProxyNode;
+    const encoded = encodeProxyNode(node);
+    if (!encoded.uri) {
+      failed++;
+      continue;
+    }
+    entry.node = node;
+    entry.name = name;
+    entry.uri = encoded.uri;
+    renamed++;
+  }
+  if (renamed > 0) {
+    outputUris = outputEntries.map(entry => entry.uri);
+    renderOutputFilter();
+  }
+  if (renamed === 0 && failed === 0) {
+    showToast("没有可用的已识别地区或测试结果；请检查重命名勾选项", true);
+    return;
+  }
+  showToast(`批量重命名完成：${renamed}/${entries.length} 个节点${failed ? `，${failed} 个节点编码失败` : ""}`, failed > 0);
+}
+
 function removeOutputEntries(entryIds: string[]): void {
   if (entryIds.length === 0) return;
   const removed = new Set(entryIds);
@@ -2009,6 +2172,7 @@ function renderOutputFilter(updateSummary = true) {
   dom.exportTableButton.disabled = uris.length === 0 || outputTableExportInProgress;
   dom.exportTablePngButton.disabled = uris.length === 0 || outputTableExportInProgress;
   dom.saveButton.disabled = uris.length === 0;
+  dom.batchRenameButton.disabled = uris.length === 0 || running || regionLookupState === "running" || nodeTestController?.isRunning() === true;
   refreshNodeTestButtons(uris.length > 0);
 }
 
@@ -2033,7 +2197,7 @@ async function enrichOutputRegions() {
 
     if (method === "NODE_NAME") {
       for (const [id, entry] of unresolved) {
-        const countryCode = countryCodeFromNodeName(entry.name);
+        const countryCode = countryCodeFromNodeName(entry.originalName || entry.name);
         if (!countryCode) continue;
         entry.countryCode = countryCode;
         unresolved.delete(id);
@@ -2079,6 +2243,7 @@ function aggregateResults(result: ConversionResult, logDiagnostics = true) {
     .map((item, index) => ({
       id: `${item.node.id}-${index}`,
       name: item.node.name,
+      originalName: item.node.name,
       server: item.node.server,
       port: item.node.port,
       protocol: item.node.protocol,
@@ -2650,6 +2815,27 @@ async function saveOutputTableAsPng() {
 }
 
 function bindEvents() {
+  const batchRenameInputBindings: Array<[keyof BatchRenameSettings, HTMLInputElement]> = [
+    ["region", dom.batchRenameRegion],
+    ["linkType", dom.batchRenameLinkType],
+    ["tcping", dom.batchRenameTcping],
+    ["url204", dom.batchRenameUrl204],
+    ["averageSpeed", dom.batchRenameAverageSpeed],
+    ["peakSpeed", dom.batchRenamePeakSpeed],
+    ["unlockSummary", dom.batchRenameUnlockSummary],
+    ["keepOriginalName", dom.batchRenameKeepOriginalName],
+  ];
+  for (const [key, input] of batchRenameInputBindings) {
+    input.checked = batchRenameSettings[key];
+    input.addEventListener("change", () => {
+      batchRenameSettings = {
+        ...batchRenameSettings,
+        [key]: input.checked,
+      };
+      saveBatchRenameSettings(batchRenameSettings);
+    });
+  }
+
   const settingsDialogs = [
     {
       button: dom.inputSettingsButton,
@@ -2669,6 +2855,7 @@ function bindEvents() {
       if (event.target === dialog) dialog.close();
     });
   });
+  dom.batchRenameButton.addEventListener("click", batchRenameCurrentOutput);
 
   dom.convertButton.addEventListener("click", () => {
     if (running) cancelConversion();

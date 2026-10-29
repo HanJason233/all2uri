@@ -69,6 +69,7 @@
                   <span><strong id="source-count">0</strong> 来源</span>
                   <span><strong id="duplicate-count">0</strong> 重复</span>
                 </div>
+                <button class="secondary-button panel-settings-button" id="batch-rename-button" type="button" disabled title="按输出设置选择的字段重命名当前筛选节点">批量重命名</button>
                 <button class="secondary-button panel-settings-button" id="output-settings-button" type="button" aria-haspopup="dialog" aria-controls="output-settings-dialog">输出设置</button>
               </div>
             </div>
@@ -233,6 +234,21 @@
               <span>包含有损结果</span>
               <input class="settings-checkbox" id="include-lossy-output" type="checkbox" />
             </label>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-batch-rename-title">
+            <h3 id="settings-batch-rename-title">批量重命名</h3>
+            <p class="settings-warning">名称按“地区 → 链路类型 → 测试结果 → 原名称”的顺序组合。仅处理当前筛选结果；尚未完成的测试项会跳过。</p>
+            <div class="test-service-options batch-rename-options" role="group" aria-label="批量重命名字段">
+              <label class="test-service-option"><input id="batch-rename-region" type="checkbox" checked /><span>地区</span></label>
+              <label class="test-service-option"><input id="batch-rename-link-type" type="checkbox" checked /><span>链路类型</span></label>
+              <label class="test-service-option"><input id="batch-rename-tcping" type="checkbox" checked /><span>TCPing 延迟</span></label>
+              <label class="test-service-option"><input id="batch-rename-url204" type="checkbox" checked /><span>204 URL 延迟</span></label>
+              <label class="test-service-option"><input id="batch-rename-average-speed" type="checkbox" checked /><span>平均下载速度</span></label>
+              <label class="test-service-option"><input id="batch-rename-peak-speed" type="checkbox" /><span>峰值下载速度</span></label>
+              <label class="test-service-option"><input id="batch-rename-unlock-summary" type="checkbox" /><span>解锁结果摘要</span></label>
+              <label class="test-service-option"><input id="batch-rename-keep-original-name" type="checkbox" checked /><span>保留原名称</span></label>
+            </div>
           </section>
 
           <section class="settings-section" aria-labelledby="settings-node-test-title">
