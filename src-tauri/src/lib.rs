@@ -646,6 +646,50 @@ fn save_text_file(path: String, content: String) -> Result<String, FetchFailure>
     Ok(target.to_string_lossy().into_owned())
 }
 
+#[tauri::command]
+fn save_xlsx_file(path: String, content_base64: String) -> Result<String, FetchFailure> {
+    use base64::Engine;
+
+    if content_base64.len() > MAX_OUTPUT_BYTES * 4 / 3 + 4 {
+        return Err(FetchFailure::new(
+            "output_too_large",
+            "Excel 文件超过 64 MiB，无法保存。",
+        ));
+    }
+
+    let target = PathBuf::from(path.trim());
+    if !target.is_absolute() {
+        return Err(FetchFailure::new(
+            "invalid_path",
+            "保存路径必须是绝对路径。",
+        ));
+    }
+    let is_xlsx = target
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("xlsx"));
+    if !is_xlsx {
+        return Err(FetchFailure::new(
+            "invalid_path",
+            "仅支持保存为 .xlsx 文件。",
+        ));
+    }
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(content_base64.as_bytes())
+        .map_err(|_| FetchFailure::new("invalid_workbook", "Excel 文件数据无效。"))?;
+    if bytes.len() > MAX_OUTPUT_BYTES {
+        return Err(FetchFailure::new(
+            "output_too_large",
+            "Excel 文件超过 64 MiB，无法保存。",
+        ));
+    }
+
+    std::fs::write(&target, bytes)
+        .map_err(|_| FetchFailure::new("write_failed", "写入 Excel 文件失败，请检查保存位置。"))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
 /// 读取用户主动选择的 UTF-8 文本文件，限制大小并去除 BOM。
 #[tauri::command]
 fn read_text_file(path: String) -> Result<String, FetchFailure> {
@@ -728,6 +772,7 @@ pub fn run() {
             read_text_file,
             capture_full_screens,
             save_text_file,
+            save_xlsx_file,
             region_lookup::lookup_node_regions,
             region_lookup::lookup_cloudflare_entries,
             node_test::run_node_test

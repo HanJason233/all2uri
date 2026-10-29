@@ -180,6 +180,20 @@ body.resizing-panels {
   letter-spacing: 0;
 }
 
+.output-title-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.output-title-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .panel-settings-button {
   min-height: 30px;
   padding: 0 10px;

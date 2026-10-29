@@ -24,6 +24,7 @@ import {
 } from "./core/location/region.ts";
 import type { RegionLookupMethod } from "./core/location/region.ts";
 import type { ConversionResult, SourceDocument } from "./core/pipeline.ts";
+import { captureOutputTableSnapshot } from "./core/output-table-snapshot.ts";
 
 interface FetchedSubscription {
   content: string;
@@ -532,6 +533,7 @@ const dom = {
   sourceCount: getElement<HTMLElement>("source-count"),
   duplicateCount: getElement<HTMLElement>("duplicate-count"),
   copyButton: getElement<HTMLButtonElement>("copy-button"),
+  exportTableButton: getElement<HTMLButtonElement>("export-table-button"),
   saveButton: getElement<HTMLButtonElement>("save-button"),
   toast: getElement<HTMLDivElement>("toast"),
 };
@@ -1950,6 +1952,7 @@ function renderOutputFilter() {
   dom.regionLookupConcurrency.disabled = running || regionLookupState === "running";
   dom.cloudflareDetectionConcurrency.disabled = running || cloudflareDetectionState === "running";
   dom.copyButton.disabled = uris.length === 0;
+  dom.exportTableButton.disabled = uris.length === 0;
   dom.saveButton.disabled = uris.length === 0;
   refreshNodeTestButtons(uris.length > 0);
 }
@@ -2513,6 +2516,21 @@ function defaultSaveName(fileName = "all"): string {
   return `chimera-subscriptions-${safeFilePart(fileName)}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
 }
 
+function defaultExcelSaveName(fileName = "all"): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `all2uri-${safeFilePart(fileName)}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.xlsx`;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize)));
+  }
+  return btoa(chunks.join(""));
+}
+
 async function copyUris(uris: string[], label: string) {
   if (uris.length === 0) return;
   try {
@@ -2547,6 +2565,33 @@ async function saveFilteredOutput() {
   const uris = getFilteredOutputUris();
   const filtered = isOutputFilterActive();
   await saveUris(uris, filtered ? "filtered" : "all", filtered ? "筛选结果" : "全部输出");
+}
+
+async function saveOutputTableAsExcel() {
+  const snapshot = captureOutputTableSnapshot(dom.outputTable);
+  if (!snapshot || snapshot.rows.length === 0) return;
+
+  const filtered = isOutputFilterActive();
+  try {
+    const path = await save({
+      defaultPath: defaultExcelSaveName(filtered ? "filtered" : "all"),
+      filters: [{ name: "Excel 工作簿", extensions: ["xlsx"] }],
+    });
+    if (!path) return;
+
+    dom.exportTableButton.disabled = true;
+    const { writeOutputTableWorkbook } = await import("./core/output-table-excel.ts");
+    const bytes = await writeOutputTableWorkbook(snapshot);
+    if (bytes.byteLength > 64 * 1024 * 1024) {
+      throw new Error("Excel 文件超过 64 MiB，无法保存");
+    }
+    await invoke<string>("save_xlsx_file", { path, contentBase64: bytesToBase64(bytes) });
+    showToast(`已保存 ${snapshot.rows.length} 个节点的 Excel 表格`);
+  } catch (error) {
+    showToast(failureFrom(error).message || "导出 Excel 表格失败", true);
+  } finally {
+    dom.exportTableButton.disabled = getFilteredOutputEntries().length === 0;
+  }
 }
 
 function bindEvents() {
@@ -2631,6 +2676,7 @@ function bindEvents() {
   dom.chooseGeoIpDatabaseButton.addEventListener("click", () => void chooseGeoIpDatabase());
   dom.clearGeoIpDatabaseButton.addEventListener("click", clearGeoIpDatabase);
   dom.copyButton.addEventListener("click", () => void copyFilteredOutput());
+  dom.exportTableButton.addEventListener("click", () => void saveOutputTableAsExcel());
   dom.saveButton.addEventListener("click", () => void saveFilteredOutput());
   dom.urls.addEventListener("keydown", event => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
