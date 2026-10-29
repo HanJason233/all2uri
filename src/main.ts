@@ -534,6 +534,7 @@ const dom = {
   duplicateCount: getElement<HTMLElement>("duplicate-count"),
   copyButton: getElement<HTMLButtonElement>("copy-button"),
   exportTableButton: getElement<HTMLButtonElement>("export-table-button"),
+  exportTablePngButton: getElement<HTMLButtonElement>("export-table-png-button"),
   saveButton: getElement<HTMLButtonElement>("save-button"),
   toast: getElement<HTMLDivElement>("toast"),
 };
@@ -588,6 +589,7 @@ let activeSourceDocuments: SourceDocument[] = [];
 let conversionAbort: AbortController | null = null;
 let cancelRequested = false;
 let running = false;
+let outputTableExportInProgress = false;
 let completedSources = 0;
 let fetchRunId = 0;
 const activeFetchRequests = new Set<string>();
@@ -1952,7 +1954,8 @@ function renderOutputFilter() {
   dom.regionLookupConcurrency.disabled = running || regionLookupState === "running";
   dom.cloudflareDetectionConcurrency.disabled = running || cloudflareDetectionState === "running";
   dom.copyButton.disabled = uris.length === 0;
-  dom.exportTableButton.disabled = uris.length === 0;
+  dom.exportTableButton.disabled = uris.length === 0 || outputTableExportInProgress;
+  dom.exportTablePngButton.disabled = uris.length === 0 || outputTableExportInProgress;
   dom.saveButton.disabled = uris.length === 0;
   refreshNodeTestButtons(uris.length > 0);
 }
@@ -2522,6 +2525,19 @@ function defaultExcelSaveName(fileName = "all"): string {
   return `all2uri-${safeFilePart(fileName)}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.xlsx`;
 }
 
+function defaultPngSaveName(fileName = "all"): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `all2uri-table-${safeFilePart(fileName)}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.png`;
+}
+
+function setOutputTableExportInProgress(inProgress: boolean): void {
+  outputTableExportInProgress = inProgress;
+  const disabled = inProgress || getFilteredOutputEntries().length === 0;
+  dom.exportTableButton.disabled = disabled;
+  dom.exportTablePngButton.disabled = disabled;
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   const chunks: string[] = [];
   const chunkSize = 0x8000;
@@ -2579,7 +2595,7 @@ async function saveOutputTableAsExcel() {
     });
     if (!path) return;
 
-    dom.exportTableButton.disabled = true;
+    setOutputTableExportInProgress(true);
     const { writeOutputTableWorkbook } = await import("./core/output-table-excel.ts");
     const bytes = await writeOutputTableWorkbook(snapshot);
     if (bytes.byteLength > 64 * 1024 * 1024) {
@@ -2590,7 +2606,35 @@ async function saveOutputTableAsExcel() {
   } catch (error) {
     showToast(failureFrom(error).message || "导出 Excel 表格失败", true);
   } finally {
-    dom.exportTableButton.disabled = getFilteredOutputEntries().length === 0;
+    setOutputTableExportInProgress(false);
+  }
+}
+
+async function saveOutputTableAsPng() {
+  const snapshot = captureOutputTableSnapshot(dom.outputTable);
+  if (!snapshot || snapshot.rows.length === 0) return;
+
+  const filtered = isOutputFilterActive();
+  try {
+    const path = await save({
+      defaultPath: defaultPngSaveName(filtered ? "filtered" : "all"),
+      filters: [{ name: "PNG 图片", extensions: ["png"] }],
+    });
+    if (!path) return;
+
+    setOutputTableExportInProgress(true);
+    const { renderOutputTablePng } = await import("./core/output-table-png.ts");
+    const bytes = await renderOutputTablePng(snapshot);
+    if (bytes.byteLength > 64 * 1024 * 1024) {
+      throw new Error("PNG 图片超过 64 MiB，无法保存");
+    }
+    await invoke<string>("save_png_file", { path, contentBase64: bytesToBase64(bytes) });
+    showToast(`已保存 ${snapshot.rows.length} 个节点的 PNG 表格图片`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : failureFrom(error).message;
+    showToast(message || "导出 PNG 表格失败", true);
+  } finally {
+    setOutputTableExportInProgress(false);
   }
 }
 
@@ -2677,6 +2721,7 @@ function bindEvents() {
   dom.clearGeoIpDatabaseButton.addEventListener("click", clearGeoIpDatabase);
   dom.copyButton.addEventListener("click", () => void copyFilteredOutput());
   dom.exportTableButton.addEventListener("click", () => void saveOutputTableAsExcel());
+  dom.exportTablePngButton.addEventListener("click", () => void saveOutputTableAsPng());
   dom.saveButton.addEventListener("click", () => void saveFilteredOutput());
   dom.urls.addEventListener("keydown", event => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {

@@ -11,7 +11,15 @@ export interface OutputTableCellStyleSnapshot {
   fontFamily: string;
   fontSize: string;
   fontWeight: string;
+  fontStyle: string;
   textAlign: string;
+  verticalAlign: string;
+  padding: Record<"top" | "right" | "bottom" | "left", string>;
+  textColor?: string;
+  textFontFamily?: string;
+  textFontSize?: string;
+  textFontWeight?: string;
+  textFontStyle?: string;
   borders: Record<"top" | "right" | "bottom" | "left", {
     color: string;
     style: string;
@@ -31,13 +39,30 @@ export interface OutputTableSnapshot {
 
 function captureCellStyle(cell: HTMLTableCellElement): OutputTableCellStyleSnapshot {
   const style = getComputedStyle(cell);
+  const primaryText = cell.querySelector<HTMLElement>(".output-table-primary");
+  const primaryTextStyle = primaryText ? getComputedStyle(primaryText) : undefined;
   return {
     color: style.color,
     backgroundColor: style.backgroundColor,
     fontFamily: style.fontFamily,
     fontSize: style.fontSize,
     fontWeight: style.fontWeight,
+    fontStyle: style.fontStyle,
     textAlign: style.textAlign,
+    verticalAlign: style.verticalAlign,
+    padding: {
+      top: style.paddingTop,
+      right: style.paddingRight,
+      bottom: style.paddingBottom,
+      left: style.paddingLeft,
+    },
+    ...(primaryTextStyle ? {
+      textColor: primaryTextStyle.color,
+      textFontFamily: primaryTextStyle.fontFamily,
+      textFontSize: primaryTextStyle.fontSize,
+      textFontWeight: primaryTextStyle.fontWeight,
+      textFontStyle: primaryTextStyle.fontStyle,
+    } : {}),
     borders: {
       top: { color: style.borderTopColor, style: style.borderTopStyle, width: style.borderTopWidth },
       right: { color: style.borderRightColor, style: style.borderRightStyle, width: style.borderRightWidth },
