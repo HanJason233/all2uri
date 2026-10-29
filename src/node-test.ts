@@ -591,11 +591,6 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     input.addEventListener("change", persist);
   }
 
-  const isTimeoutError = (state: NodeTestResultState): boolean => {
-    const message = state.error ?? state.result?.error ?? "";
-    return message.includes("\u8d85\u65f6");
-  };
-
   const effectiveConcurrency = (mode: ConcurrencyMode, value: number, total: number, max: number): number => {
     const raw = mode === "percent" ? Math.ceil(total * value / 100) : value;
     return Math.min(max, Math.max(1, raw));
@@ -702,12 +697,13 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     if (kind === "tcping" && settings.tcpingAutoDeleteTimeoutNodes
       || kind === "url204" && settings.url204AutoDeleteTimeoutNodes
       || kind === "bandwidth" && settings.bandwidthAutoDeleteLowSpeedNodes) {
+      // TCPing 和 204 URL 按失败状态删除，带宽测试按失败状态或速度阈值删除。
       for (const entry of entries) {
         const state = getResult(entry.id, kind);
         if (!state) continue;
         const shouldDelete = kind === "bandwidth"
           ? state.state === "error" || (state.result?.downloadMbps ?? 0) < settings.bandwidthAutoDeleteThresholdMbps
-          : isTimeoutError(state);
+          : state.state === "error" || state.result?.success === false;
         if (shouldDelete) deleteIds.push(entry.id);
       }
     }
