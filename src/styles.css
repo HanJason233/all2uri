@@ -845,6 +845,7 @@ label.settings-row {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overflow-anchor: none;
   background: #ffffff;
   border: 1px solid #d8e0ea;
   border-radius: 2px;
@@ -891,6 +892,15 @@ label.settings-row {
   color: #263449;
   border-bottom: 1px solid #e1e7ef;
   vertical-align: middle;
+  white-space: nowrap;
+}
+
+.output-table .output-table-virtual-spacer > td {
+  padding: 0;
+  border: 0;
+  font-size: 0;
+  line-height: 0;
+  background: #fff;
 }
 
 .output-table tbody tr:last-child td {

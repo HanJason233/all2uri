@@ -138,7 +138,9 @@ export function captureOutputTableSnapshot(table: HTMLTableElement): OutputTable
   const headerCells = visibleCells(headerRow);
   if (headerCells.length === 0) return null;
 
-  const dataRows = Array.from(table.tBodies).flatMap(body => Array.from(body.rows));
+  const dataRows = Array.from(table.tBodies)
+    .flatMap(body => Array.from(body.rows))
+    .filter(row => !row.classList.contains("output-table-virtual-spacer"));
   const footerRow = table.tFoot?.rows[0] ?? null;
   const columns = Array.from(table.querySelectorAll<HTMLTableColElement>("col[data-column-key]"));
 

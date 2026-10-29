@@ -132,6 +132,9 @@ const REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
 const CLOUDFLARE_DETECTION_ENABLED_STORAGE_KEY = "all2uri.cloudflare-detection-enabled";
 const CLOUDFLARE_DETECTION_CONCURRENCY_STORAGE_KEY = "all2uri.cloudflare-detection-concurrency";
+const OUTPUT_TABLE_ROW_HEIGHT_ESTIMATE = 41;
+const OUTPUT_TABLE_VIRTUALIZATION_THRESHOLD = 200;
+const OUTPUT_TABLE_OVERSCAN_ROWS = 8;
 const OUTPUT_COLUMN_DEFAULT_WIDTHS: Record<string, number> = {
   index: 64,
   name: 360,
@@ -567,6 +570,12 @@ let renderedOutputColumns: OutputTableColumn[] = [];
 let sourceResults: SourceResult[] = [];
 let outputUris: string[] = [];
 let outputEntries: CategorizedOutput[] = [];
+let filteredOutputEntries: CategorizedOutput[] = [];
+let renderedOutputColumnSignature = "";
+let renderedOutputRowRange = { start: -1, end: -1 };
+let outputTableRowsFrame: number | null = null;
+let outputTableLastScrollTop = 0;
+let outputFilterRenderFrame: number | null = null;
 let nodeTestController: NodeTestController | null = null;
 let outputFilter = loadOutputFilter();
 let regionLookupMethods = loadRegionLookupMethods();
@@ -754,7 +763,11 @@ function bindOutputTableColumnResizers() {
   });
 
   applyOutputColumnWidths();
-  new ResizeObserver(applyOutputColumnWidths).observe(dom.outputTableWrap);
+  dom.outputTableWrap.addEventListener("scroll", handleOutputTableScroll, { passive: true });
+  new ResizeObserver(() => {
+    applyOutputColumnWidths();
+    scheduleOutputTableRows();
+  }).observe(dom.outputTableWrap);
 }
 
 function bindPanelResizers() {
@@ -1848,8 +1861,13 @@ function serviceColumn(service: UnlockServiceDefinition): OutputTableColumn {
     });
 }
 
-function renderOutputTableHeader(entries: CategorizedOutput[]) {
-  renderedOutputColumns = outputTableColumns();
+function renderOutputTableHeader(): boolean {
+  const columns = outputTableColumns();
+  const signature = JSON.stringify(columns.map(({ key, label, width }) => [key, label, width]));
+  if (signature === renderedOutputColumnSignature) return false;
+
+  renderedOutputColumns = columns;
+  renderedOutputColumnSignature = signature;
 
   const colElements = renderedOutputColumns.map(column => {
     const col = document.createElement("col");
@@ -1884,6 +1902,11 @@ function renderOutputTableHeader(entries: CategorizedOutput[]) {
   headerRow.append(fillerHeader);
   dom.outputTableHead.replaceChildren(headerRow);
 
+  applyOutputColumnWidths();
+  return true;
+}
+
+function renderOutputTableFooter(entries: CategorizedOutput[]) {
   const showSummary = entries.some(entry => nodeTestController?.getResult(entry.id, "unlock")?.state === "done");
   if (!showSummary) {
     dom.outputTableFoot.replaceChildren();
@@ -1902,8 +1925,6 @@ function renderOutputTableHeader(entries: CategorizedOutput[]) {
     summaryRow.append(filler);
     dom.outputTableFoot.replaceChildren(summaryRow);
   }
-
-  applyOutputColumnWidths();
 }
 
 function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTableRowElement {
@@ -1917,6 +1938,112 @@ function renderOutputTableRow(entry: CategorizedOutput, index: number): HTMLTabl
   return row;
 }
 
+function createOutputTableSpacer(height: number): HTMLTableRowElement {
+  const row = document.createElement("tr");
+  row.className = "output-table-virtual-spacer";
+  row.setAttribute("aria-hidden", "true");
+  row.style.height = `${height}px`;
+  const cell = document.createElement("td");
+  cell.colSpan = renderedOutputColumns.length + 1;
+  cell.style.height = `${height}px`;
+  cell.style.padding = "0";
+  cell.style.border = "0";
+  cell.style.lineHeight = "0";
+  cell.style.fontSize = "0";
+  row.append(cell);
+  return row;
+}
+
+function renderOutputTableRows(force = false) {
+  const entries = filteredOutputEntries;
+  const rowHeight = dom.outputTableBody.querySelector<HTMLTableRowElement>("tr[data-node-id]")
+    ?.getBoundingClientRect().height || OUTPUT_TABLE_ROW_HEIGHT_ESTIMATE;
+  const headerHeight = dom.outputTableHead.rows[0]?.getBoundingClientRect().height || OUTPUT_TABLE_ROW_HEIGHT_ESTIMATE;
+  const virtualized = entries.length > OUTPUT_TABLE_VIRTUALIZATION_THRESHOLD;
+  const footerHeight = dom.outputTableFoot.rows[0]?.getBoundingClientRect().height || 0;
+  const maxScrollTop = Math.max(0, headerHeight + entries.length * rowHeight + footerHeight - dom.outputTableWrap.clientHeight);
+  if (dom.outputTableWrap.scrollTop > maxScrollTop) dom.outputTableWrap.scrollTop = maxScrollTop;
+  const bodyScrollTop = Math.max(0, dom.outputTableWrap.scrollTop - headerHeight);
+  const firstVisible = Math.floor(bodyScrollTop / rowHeight);
+  const lastVisible = Math.ceil((bodyScrollTop + dom.outputTableWrap.clientHeight) / rowHeight);
+  const start = virtualized && entries.length > 0
+    ? Math.min(entries.length - 1, Math.max(0, firstVisible - OUTPUT_TABLE_OVERSCAN_ROWS))
+    : 0;
+  const end = virtualized
+    ? Math.min(entries.length, Math.max(start + 1, lastVisible + OUTPUT_TABLE_OVERSCAN_ROWS))
+    : entries.length;
+
+  if (!force && start === renderedOutputRowRange.start && end === renderedOutputRowRange.end) return;
+
+  const fragment = document.createDocumentFragment();
+  if (start > 0) fragment.append(createOutputTableSpacer(start * rowHeight));
+  for (let index = start; index < end; index++) {
+    fragment.append(renderOutputTableRow(entries[index]!, index));
+  }
+  if (end < entries.length) fragment.append(createOutputTableSpacer((entries.length - end) * rowHeight));
+  dom.outputTableBody.replaceChildren(fragment);
+  renderedOutputRowRange = { start, end };
+}
+
+function scheduleOutputTableRows() {
+  if (outputTableRowsFrame !== null) return;
+  outputTableRowsFrame = requestAnimationFrame(() => {
+    outputTableRowsFrame = null;
+    renderOutputTableRows();
+  });
+}
+
+function handleOutputTableScroll() {
+  const scrollTop = dom.outputTableWrap.scrollTop;
+  if (scrollTop === outputTableLastScrollTop) return;
+  outputTableLastScrollTop = scrollTop;
+  scheduleOutputTableRows();
+}
+
+function scheduleOutputFilterRender() {
+  if (outputFilterRenderFrame !== null) return;
+  outputFilterRenderFrame = requestAnimationFrame(() => {
+    outputFilterRenderFrame = null;
+    renderOutputFilter();
+  });
+}
+
+function captureOutputTableSnapshotForExport() {
+  if (outputFilterRenderFrame !== null) {
+    cancelAnimationFrame(outputFilterRenderFrame);
+    outputFilterRenderFrame = null;
+    renderOutputFilter();
+  }
+  const entries = getFilteredOutputEntries();
+  if (entries.length <= OUTPUT_TABLE_VIRTUALIZATION_THRESHOLD) return captureOutputTableSnapshot(dom.outputTable);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "output-table-wrap output-table-export-staging";
+  wrapper.setAttribute("aria-hidden", "true");
+  wrapper.style.position = "fixed";
+  wrapper.style.left = "-100000px";
+  wrapper.style.top = "0";
+  wrapper.style.visibility = "hidden";
+  wrapper.style.pointerEvents = "none";
+  wrapper.style.width = `${Math.max(dom.outputTableWrap.clientWidth, dom.outputTable.scrollWidth)}px`;
+  wrapper.style.height = `${Math.max(dom.outputTableWrap.clientHeight, (entries.length + 2) * OUTPUT_TABLE_ROW_HEIGHT_ESTIMATE + 60)}px`;
+  wrapper.style.overflow = "visible";
+
+  const table = dom.outputTable.cloneNode(true) as HTMLTableElement;
+  const body = table.tBodies[0];
+  if (!body) return null;
+  const rows = document.createDocumentFragment();
+  entries.forEach((entry, index) => rows.append(renderOutputTableRow(entry, index)));
+  body.replaceChildren(rows);
+  wrapper.append(table);
+  document.body.append(wrapper);
+  try {
+    return captureOutputTableSnapshot(table);
+  } finally {
+    wrapper.remove();
+  }
+}
+
 function removeOutputEntries(entryIds: string[]): void {
   if (entryIds.length === 0) return;
   const removed = new Set(entryIds);
@@ -1926,16 +2053,18 @@ function removeOutputEntries(entryIds: string[]): void {
   renderOutputFilter();
 }
 
-function renderOutputFilter() {
-  const filteredEntries = getFilteredOutputEntries();
+function renderOutputFilter(updateSummary = true) {
+  filteredOutputEntries = getFilteredOutputEntries();
+  const filteredEntries = filteredOutputEntries;
   const uris = filteredEntries.map(entry => entry.uri);
-  const value = uris.join("\n");
+  const outputBytes = new Blob(uris).size + Math.max(0, uris.length - 1);
 
-  renderOutputTableHeader(filteredEntries);
-  dom.outputTableBody.replaceChildren();
-  filteredEntries.forEach((entry, index) => dom.outputTableBody.append(renderOutputTableRow(entry, index)));
+  const columnsChanged = renderOutputTableHeader();
+  if (updateSummary || columnsChanged) renderOutputTableFooter(filteredEntries);
+  renderedOutputRowRange = { start: -1, end: -1 };
+  renderOutputTableRows(true);
   dom.outputTableWrap.hidden = false;
-  dom.outputFilterCount.textContent = `${uris.length} 个节点 · ${formatBytes(new Blob([value]).size)}`;
+  dom.outputFilterCount.textContent = `${uris.length} 个节点 · ${formatBytes(outputBytes)}`;
 
   const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
   const cloudflareCount = outputEntries.filter(entry => entry.isCloudflare === true).length;
@@ -1965,13 +2094,13 @@ async function enrichOutputRegions() {
   const entries = [...outputEntries];
   if (entries.length === 0) {
     regionLookupState = "idle";
-    renderOutputFilter();
+    renderOutputFilter(outputFilter.countriesEnabled);
     return;
   }
 
   regionLookupState = regionLookupMethods.length > 0 ? "running" : "done";
   for (const entry of entries) entry.countryCode = null;
-  renderOutputFilter();
+  renderOutputFilter(outputFilter.countriesEnabled);
 
   const unresolved = new Map(entries.map(entry => [entry.id, entry]));
   let lookupFailed = false;
@@ -2014,7 +2143,7 @@ async function enrichOutputRegions() {
 
   if (runId !== regionLookupRunId) return;
   regionLookupState = lookupFailed ? "error" : "done";
-  renderOutputFilter();
+  renderOutputFilter(outputFilter.countriesEnabled);
 }
 
 async function enrichOutputCloudflare() {
@@ -2031,7 +2160,7 @@ async function enrichOutputCloudflare() {
   const runId = ++cloudflareDetectionRunId;
   cloudflareDetectionState = "running";
   for (const entry of entries) entry.isCloudflare = null;
-  renderOutputFilter();
+  renderOutputFilter(outputFilter.cloudflareEntryEnabled);
   try {
     const results = await invoke<Array<{
       id: string;
@@ -2054,7 +2183,7 @@ async function enrichOutputCloudflare() {
     cloudflareDetectionState = "error";
     appendLog(`CF 入口检测失败：${failureFrom(error).message}`, true);
   }
-  if (runId === cloudflareDetectionRunId) renderOutputFilter();
+  if (runId === cloudflareDetectionRunId) renderOutputFilter(outputFilter.cloudflareEntryEnabled);
 }
 
 function aggregateResults(result: ConversionResult, logDiagnostics = true) {
@@ -2584,8 +2713,7 @@ async function saveFilteredOutput() {
 }
 
 async function saveOutputTableAsExcel() {
-  const snapshot = captureOutputTableSnapshot(dom.outputTable);
-  if (!snapshot || snapshot.rows.length === 0) return;
+  if (getFilteredOutputEntries().length === 0) return;
 
   const filtered = isOutputFilterActive();
   try {
@@ -2596,6 +2724,8 @@ async function saveOutputTableAsExcel() {
     if (!path) return;
 
     setOutputTableExportInProgress(true);
+    const snapshot = captureOutputTableSnapshotForExport();
+    if (!snapshot || snapshot.rows.length === 0) return;
     const { writeOutputTableWorkbook } = await import("./core/output-table-excel.ts");
     const bytes = await writeOutputTableWorkbook(snapshot);
     if (bytes.byteLength > 64 * 1024 * 1024) {
@@ -2611,8 +2741,7 @@ async function saveOutputTableAsExcel() {
 }
 
 async function saveOutputTableAsPng() {
-  const snapshot = captureOutputTableSnapshot(dom.outputTable);
-  if (!snapshot || snapshot.rows.length === 0) return;
+  if (getFilteredOutputEntries().length === 0) return;
 
   const filtered = isOutputFilterActive();
   try {
@@ -2623,6 +2752,8 @@ async function saveOutputTableAsPng() {
     if (!path) return;
 
     setOutputTableExportInProgress(true);
+    const snapshot = captureOutputTableSnapshotForExport();
+    if (!snapshot || snapshot.rows.length === 0) return;
     const { renderOutputTablePng } = await import("./core/output-table-png.ts");
     const bytes = await renderOutputTablePng(snapshot);
     if (bytes.byteLength > 64 * 1024 * 1024) {
@@ -2760,9 +2891,9 @@ function bindEvents() {
       protocol: entry.protocol,
       node: entry.node,
     })),
-    onResultsChanged: () => renderOutputFilter(),
+    onResultsChanged: scheduleOutputFilterRender,
     onDeleteEntries: removeOutputEntries,
-    onTestStarted: () => renderOutputFilter(),
+    onTestStarted: scheduleOutputFilterRender,
   });
   renderRegionLookupSettings();
   renderOutputFilter();
