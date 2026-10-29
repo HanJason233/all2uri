@@ -2869,6 +2869,7 @@ function bindEvents() {
   dom.skipCertificateVerification.addEventListener("change", () => {
     dom.skipCertificateNote.hidden = !shouldSkipCertificateVerification();
   });
+  dom.skipCertificateNote.hidden = !shouldSkipCertificateVerification();
   dom.deduplicateOutput.addEventListener("change", refreshForOutputSettingChange);
   dom.includeLossyOutput.addEventListener("change", refreshForOutputSettingChange);
 

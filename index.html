@@ -175,14 +175,14 @@
             <label class="settings-row">
               <span>最大重定向</span>
               <span class="settings-value">
-                <input id="max-redirects" class="settings-control settings-number" type="number" min="0" step="1" value="10" inputmode="numeric" />
+                <input id="max-redirects" class="settings-control settings-number" type="number" min="0" step="1" value="5" inputmode="numeric" />
                 <span>次</span>
               </span>
             </label>
             <label class="settings-row">
               <span>远程订阅超时</span>
               <span class="settings-value">
-                <input id="remote-timeout-seconds" class="settings-control settings-number" type="number" min="1" step="1" value="30" inputmode="numeric" />
+                <input id="remote-timeout-seconds" class="settings-control settings-number" type="number" min="1" step="1" value="10" inputmode="numeric" />
                 <span>秒</span>
               </span>
             </label>
@@ -206,7 +206,7 @@
             </label>
             <label class="settings-row">
               <span>跳过证书验证</span>
-              <input class="settings-checkbox" id="skip-certificate-verification" type="checkbox" />
+              <input class="settings-checkbox" id="skip-certificate-verification" type="checkbox" checked />
             </label>
             <p class="settings-warning" id="skip-certificate-note" hidden>证书校验已关闭，请确认订阅源可信。</p>
           </section>
