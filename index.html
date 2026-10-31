@@ -133,31 +133,28 @@
       </section>
     </div>
 
-    <dialog class="output-rule-dialog settings-dialog" id="app-settings-dialog" aria-labelledby="app-settings-dialog-title">
+    <dialog class="output-rule-dialog settings-dialog" id="app-settings-dialog" aria-label="设置">
       <div class="output-rule-dialog-content settings-dialog-content">
-        <header class="output-rule-dialog-header">
-          <div>
-            <h2 id="app-settings-dialog-title">设置</h2>
-            <p>按类别管理订阅、输出和节点检测参数。</p>
-          </div>
+        <header class="output-rule-dialog-header settings-dialog-header">
           <button class="output-rule-dialog-close" id="settings-dialog-close" type="button" aria-label="关闭设置">×</button>
         </header>
         <div class="settings-workspace">
           <nav class="settings-nav" id="settings-nav" role="tablist" aria-label="设置分类" aria-orientation="vertical">
+            <div class="settings-nav-heading" role="presentation">设置分类</div>
             <button class="settings-nav-button" id="settings-tab-input" type="button" role="tab" aria-controls="settings-pane-input" aria-selected="true" data-settings-tab="input" tabindex="0">
-              <span>输入</span><small>订阅来源与标识</small>
+              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16v2L4 8V6zm2-4h12v2H6V2zm14 8H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-8c0-1.1-.9-2-2-2zm0 10H4v-8h16v8zm-10-7.27v6.53L16 16l-6-3.27z" /></svg>输入</span>
             </button>
             <button class="settings-nav-button" id="settings-tab-network" type="button" role="tab" aria-controls="settings-pane-network" aria-selected="false" data-settings-tab="network" tabindex="-1">
-              <span>网络</span><small>请求限制与连接</small>
+              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM3 14h7v7H3v-7zm11 0h7v7h-7v-7zm-3-3h2v2h5v2h-2v-1H8v1H6v-2h5v-2z" /></svg>网络</span>
             </button>
             <button class="settings-nav-button" id="settings-tab-output" type="button" role="tab" aria-controls="settings-pane-output" aria-selected="false" data-settings-tab="output" tabindex="-1">
-              <span>输出</span><small>结果与命名</small>
+              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 9h3v10H5V9zm5-4h3v14h-3V5zm5 7h3v7h-3v-7zm5-5h3v12h-3V7z" /></svg>输出</span>
             </button>
             <button class="settings-nav-button" id="settings-tab-detection" type="button" role="tab" aria-controls="settings-pane-detection" aria-selected="false" data-settings-tab="detection" tabindex="-1">
-              <span>节点检测</span><small>检测项目与参数</small>
+              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2 4 5v6c0 5.2 3.4 9.8 8 11 4.6-1.2 8-5.8 8-11V5l-8-3zm0 3.2 5 1.9V11c0 3.7-2.1 7.1-5 8.3-2.9-1.2-5-4.6-5-8.3V7.1l5-1.9zm-1 9.4-2-2-1.4 1.4L11 17l5.4-5.4L15 10.2l-4 4.4z" /></svg>节点检测</span>
             </button>
             <button class="settings-nav-button" id="settings-tab-region" type="button" role="tab" aria-controls="settings-pane-region" aria-selected="false" data-settings-tab="region" tabindex="-1">
-              <span>地区识别</span><small>查询方式与数据库</small>
+              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Zm6.92 6h-2.95a15.7 15.7 0 0 0-1.5-3.5A8.03 8.03 0 0 1 18.92 8ZM12 4c.83 1.2 1.48 2.53 1.87 4h-3.74C10.52 6.53 11.17 5.2 12 4ZM4.26 14A8.15 8.15 0 0 1 4 12c0-.69.1-1.36.26-2h3.38a16.78 16.78 0 0 0 0 4H4.26Zm.82 2h2.95c.32 1.25.82 2.45 1.5 3.5A8.03 8.03 0 0 1 5.08 16Zm2.95-8H5.08a8.03 8.03 0 0 1 4.45-3.5A15.7 15.7 0 0 0 8.03 8ZM12 20a13.7 13.7 0 0 1-1.87-4h3.74A13.7 13.7 0 0 1 12 20Zm2.34-6H9.66a14.46 14.46 0 0 1 0-4h4.68a14.46 14.46 0 0 1 0 4Zm.13 5.5c.68-1.05 1.18-2.25 1.5-3.5h2.95a8.03 8.03 0 0 1-4.45 3.5ZM16.36 14a16.78 16.78 0 0 0 0-4h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38Z" /></svg>地区识别</span>
             </button>
           </nav>
           <div class="settings-content" id="settings-content">
