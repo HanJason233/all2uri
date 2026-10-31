@@ -469,9 +469,13 @@ function getElement<T extends HTMLElement>(id: string): T {
 
 const dom = {
   urls: getElement<HTMLTextAreaElement>("subscription-urls"),
-  inputSettingsButton: getElement<HTMLButtonElement>("input-settings-button"),
-  inputSettingsDialog: getElement<HTMLDialogElement>("input-settings-dialog"),
-  inputSettingsDialogClose: getElement<HTMLButtonElement>("input-settings-dialog-close"),
+  settingsButton: getElement<HTMLButtonElement>("settings-button"),
+  settingsDialog: getElement<HTMLDialogElement>("app-settings-dialog"),
+  settingsDialogClose: getElement<HTMLButtonElement>("settings-dialog-close"),
+  settingsNav: getElement<HTMLElement>("settings-nav"),
+  settingsContent: getElement<HTMLDivElement>("settings-content"),
+  settingsTabs: Array.from(document.querySelectorAll<HTMLButtonElement>("[data-settings-tab]")),
+  settingsPanes: Array.from(document.querySelectorAll<HTMLElement>("[data-settings-pane]")),
   importClipboardButton: getElement<HTMLButtonElement>("import-clipboard-button"),
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
   importQrButton: getElement<HTMLButtonElement>("import-qr-button"),
@@ -515,9 +519,6 @@ const dom = {
   processingStatus: getElement<HTMLSpanElement>("processing-status"),
   logList: getElement<HTMLDivElement>("log-list"),
   clearLogButton: getElement<HTMLButtonElement>("clear-log-button"),
-  outputSettingsButton: getElement<HTMLButtonElement>("output-settings-button"),
-  outputSettingsDialog: getElement<HTMLDialogElement>("output-settings-dialog"),
-  outputSettingsDialogClose: getElement<HTMLButtonElement>("output-settings-dialog-close"),
   batchRenameButton: getElement<HTMLButtonElement>("batch-rename-button"),
   batchRenameRegion: getElement<HTMLInputElement>("batch-rename-region"),
   batchRenameLinkType: getElement<HTMLInputElement>("batch-rename-link-type"),
@@ -536,10 +537,7 @@ const dom = {
   outputTableHead: getElement<HTMLTableSectionElement>("output-table-head"),
   outputTableBody: getElement<HTMLTableSectionElement>("output-table-body"),
   outputTableFoot: getElement<HTMLTableSectionElement>("output-table-foot"),
-  outputFilterDialog: getElement<HTMLDialogElement>("output-filter-dialog"),
-  outputFilterDialogClose: getElement<HTMLButtonElement>("output-filter-dialog-close"),
-  outputFilterDialogCancel: getElement<HTMLButtonElement>("output-filter-dialog-cancel"),
-  outputFilterDialogSave: getElement<HTMLButtonElement>("output-filter-dialog-save"),
+  outputFilterApplyButton: getElement<HTMLButtonElement>("output-filter-apply-button"),
   outputFilterProtocolEnabled: getElement<HTMLInputElement>("output-filter-protocol-enabled"),
   outputFilterProtocolOptions: getElement<HTMLDivElement>("output-filter-protocol-options"),
   outputFilterProtocolSummary: getElement<HTMLSpanElement>("output-filter-protocol-summary"),
@@ -559,6 +557,22 @@ const dom = {
   saveButton: getElement<HTMLButtonElement>("save-button"),
   toast: getElement<HTMLDivElement>("toast"),
 };
+
+let activeSettingsCategory = "input";
+
+function selectSettingsCategory(category: string) {
+  if (!dom.settingsPanes.some(pane => pane.dataset.settingsPane === category)) return;
+  activeSettingsCategory = category;
+  for (const tab of dom.settingsTabs) {
+    const selected = tab.dataset.settingsTab === category;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  for (const pane of dom.settingsPanes) {
+    pane.hidden = pane.dataset.settingsPane !== category;
+  }
+  dom.settingsContent.scrollTop = 0;
+}
 
 interface ResizeState {
   index: number;
@@ -1388,7 +1402,7 @@ function availableOutputRegionCodes(): string[] {
   });
 }
 
-function updateOutputFilterDialogSummaries() {
+function updateOutputFilterSettingsSummaries() {
   dom.outputFilterProtocolEnabled.checked = draftFilterProtocolsEnabled;
   dom.outputFilterProtocolSummary.textContent = !draftFilterProtocolsEnabled
     ? "未启用"
@@ -1414,7 +1428,7 @@ function updateOutputFilterDialogSummaries() {
   dom.outputFilterCloudflareEntry.value = draftFilterCloudflareEntry;
 }
 
-function renderOutputFilterDialogOptions() {
+function renderOutputFilterSettingsOptions() {
   dom.outputFilterProtocolOptions.replaceChildren();
   for (const item of OUTPUT_PROTOCOLS) {
     const optionLabel = document.createElement("label");
@@ -1433,7 +1447,7 @@ function renderOutputFilterDialogOptions() {
       draftFilterProtocols = OUTPUT_PROTOCOLS
         .map(protocol => protocol.value)
         .filter(protocol => selected.has(protocol));
-      updateOutputFilterDialogSummaries();
+      updateOutputFilterSettingsSummaries();
     });
     optionLabel.append(checkbox, optionName);
     dom.outputFilterProtocolOptions.append(optionLabel);
@@ -1463,28 +1477,34 @@ function renderOutputFilterDialogOptions() {
       if (checkbox.checked) selected.add(code);
       else selected.delete(code);
       draftFilterCountries = regionCodes.filter(regionCode => selected.has(regionCode));
-      updateOutputFilterDialogSummaries();
+      updateOutputFilterSettingsSummaries();
     });
     optionLabel.append(checkbox, optionName);
     dom.outputFilterRegionOptions.append(optionLabel);
   }
-  updateOutputFilterDialogSummaries();
+  updateOutputFilterSettingsSummaries();
 }
 
-function openOutputFilterDialog() {
-  if (dom.outputFilterDialog.open) return;
+function prepareOutputFilterSettings() {
   draftFilterProtocols = [...outputFilter.protocols];
   draftFilterProtocolsEnabled = outputFilter.protocolsEnabled;
   draftFilterCountries = [...outputFilter.countries];
   draftFilterCountriesEnabled = outputFilter.countriesEnabled;
   draftFilterCloudflareEnabled = outputFilter.cloudflareEntryEnabled;
   draftFilterCloudflareEntry = outputFilter.cloudflareEntry;
-  renderOutputFilterDialogOptions();
-  updateOutputFilterDialogSummaries();
-  dom.outputFilterDialog.showModal();
+  renderOutputFilterSettingsOptions();
+  updateOutputFilterSettingsSummaries();
 }
 
-function saveOutputFilterDialog() {
+function openOutputFilterSettings() {
+  prepareOutputFilterSettings();
+  selectSettingsCategory("output");
+  if (!dom.settingsDialog.open) dom.settingsDialog.showModal();
+  dom.settingsTabs.find(tab => tab.dataset.settingsTab === "output")?.focus();
+  document.getElementById("settings-output-filter-title")?.scrollIntoView({ block: "start" });
+}
+
+function saveOutputFilterSettings() {
   outputFilter = {
     protocolsEnabled: draftFilterProtocolsEnabled,
     protocols: [...draftFilterProtocols],
@@ -1494,7 +1514,7 @@ function saveOutputFilterDialog() {
     cloudflareEntry: draftFilterCloudflareEntry,
   };
   saveOutputFilter();
-  dom.outputFilterDialog.close("save");
+  dom.settingsDialog.close("save");
   renderOutputFilter();
   dom.outputFilterButton.focus();
 }
@@ -2166,7 +2186,7 @@ function renderOutputFilter(updateSummary = true) {
     ? `${uris.length} / ${outputUris.length} 个节点`
     : `${outputUris.length} 个节点`;
   dom.outputOverview.textContent = `${countText}${regionStatus}`;
-  updateOutputFilterDialogSummaries();
+  updateOutputFilterSettingsSummaries();
   dom.regionLookupConcurrency.disabled = running || regionLookupState === "running";
   dom.copyButton.disabled = uris.length === 0;
   dom.exportTableButton.disabled = uris.length === 0 || outputTableExportInProgress;
@@ -2836,23 +2856,37 @@ function bindEvents() {
     });
   }
 
-  const settingsDialogs = [
-    {
-      button: dom.inputSettingsButton,
-      dialog: dom.inputSettingsDialog,
-      closeButton: dom.inputSettingsDialogClose,
-    },
-    {
-      button: dom.outputSettingsButton,
-      dialog: dom.outputSettingsDialog,
-      closeButton: dom.outputSettingsDialogClose,
-    },
-  ];
-  settingsDialogs.forEach(({ button, dialog, closeButton }) => {
-    button.addEventListener("click", () => dialog.showModal());
-    closeButton.addEventListener("click", () => dialog.close());
-    dialog.addEventListener("click", event => {
-      if (event.target === dialog) dialog.close();
+  dom.settingsButton.addEventListener("click", () => {
+    prepareOutputFilterSettings();
+    selectSettingsCategory(activeSettingsCategory);
+    dom.settingsDialog.showModal();
+    dom.settingsTabs.find(tab => tab.dataset.settingsTab === activeSettingsCategory)?.focus();
+  });
+  dom.settingsDialogClose.addEventListener("click", () => dom.settingsDialog.close());
+  dom.settingsDialog.addEventListener("click", event => {
+    if (event.target === dom.settingsDialog) dom.settingsDialog.close();
+  });
+  const settingsNavBreakpoint = window.matchMedia("(max-width: 760px)");
+  const syncSettingsNavOrientation = () => {
+    dom.settingsNav.setAttribute("aria-orientation", settingsNavBreakpoint.matches ? "horizontal" : "vertical");
+  };
+  syncSettingsNavOrientation();
+  settingsNavBreakpoint.addEventListener("change", syncSettingsNavOrientation);
+  dom.settingsTabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => selectSettingsCategory(tab.dataset.settingsTab ?? "input"));
+    tab.addEventListener("keydown", event => {
+      let nextIndex = index;
+      const nextKey = dom.settingsNav.getAttribute("aria-orientation") === "vertical" ? "ArrowDown" : "ArrowRight";
+      const previousKey = dom.settingsNav.getAttribute("aria-orientation") === "vertical" ? "ArrowUp" : "ArrowLeft";
+      if (event.key === nextKey) nextIndex = (index + 1) % dom.settingsTabs.length;
+      else if (event.key === previousKey) nextIndex = (index - 1 + dom.settingsTabs.length) % dom.settingsTabs.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = dom.settingsTabs.length - 1;
+      else return;
+      event.preventDefault();
+      const nextTab = dom.settingsTabs[nextIndex];
+      selectSettingsCategory(nextTab.dataset.settingsTab ?? "input");
+      nextTab.focus();
     });
   });
   dom.batchRenameButton.addEventListener("click", batchRenameCurrentOutput);
@@ -2882,32 +2916,27 @@ function bindEvents() {
     syncFetchConcurrencyInput();
     if (!dom.validation.hidden) setValidation();
   });
-  dom.outputFilterButton.addEventListener("click", openOutputFilterDialog);
+  dom.outputFilterButton.addEventListener("click", openOutputFilterSettings);
   dom.outputColumnResetButton.addEventListener("click", resetOutputColumnWidths);
-  dom.outputFilterDialogClose.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
-  dom.outputFilterDialogCancel.addEventListener("click", () => dom.outputFilterDialog.close("cancel"));
-  dom.outputFilterDialogSave.addEventListener("click", saveOutputFilterDialog);
+  dom.outputFilterApplyButton.addEventListener("click", saveOutputFilterSettings);
   dom.regionLookupConcurrency.value = String(regionLookupConcurrency);
   dom.regionLookupConcurrency.addEventListener("change", updateRegionLookupConcurrency);
   dom.outputFilterProtocolEnabled.addEventListener("change", () => {
     draftFilterProtocolsEnabled = dom.outputFilterProtocolEnabled.checked;
-    updateOutputFilterDialogSummaries();
+    updateOutputFilterSettingsSummaries();
   });
   dom.outputFilterRegionEnabled.addEventListener("change", () => {
     draftFilterCountriesEnabled = dom.outputFilterRegionEnabled.checked;
-    updateOutputFilterDialogSummaries();
+    updateOutputFilterSettingsSummaries();
   });
   dom.outputFilterCloudflareEnabled.addEventListener("change", () => {
     draftFilterCloudflareEnabled = dom.outputFilterCloudflareEnabled.checked;
-    updateOutputFilterDialogSummaries();
+    updateOutputFilterSettingsSummaries();
   });
   dom.outputFilterCloudflareEntry.addEventListener("change", () => {
     const value = dom.outputFilterCloudflareEntry.value;
     draftFilterCloudflareEntry = value === "yes" || value === "no" ? value : "all";
-    updateOutputFilterDialogSummaries();
-  });
-  dom.outputFilterDialog.addEventListener("click", event => {
-    if (event.target === dom.outputFilterDialog) dom.outputFilterDialog.close("cancel");
+    updateOutputFilterSettingsSummaries();
   });
   dom.chooseGeoIpDatabaseButton.addEventListener("click", () => void chooseGeoIpDatabase());
   dom.clearGeoIpDatabaseButton.addEventListener("click", clearGeoIpDatabase);
