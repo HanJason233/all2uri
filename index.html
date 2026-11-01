@@ -157,7 +157,7 @@
               <div class="settings-pane-heading">
                 <h2>输入</h2>
               </div>
-              <div class="settings-pane-sections">
+              <div class="settings-pane-sections settings-pane-grid">
                 <section class="settings-section" aria-labelledby="settings-request-title">
                   <h3 id="settings-request-title">订阅请求</h3>
                   <label class="settings-row">
@@ -186,7 +186,19 @@
                   />
                 </section>
 
-                <section class="settings-section" aria-labelledby="settings-limits-title">
+                <section class="settings-section" aria-labelledby="settings-security-title">
+                  <h3 id="settings-security-title">连接</h3>
+                  <label class="settings-row">
+                    <span>允许本机及局域网</span>
+                    <input class="settings-checkbox" id="allow-local-network" type="checkbox" />
+                  </label>
+                  <label class="settings-row">
+                    <span>跳过证书验证</span>
+                    <input class="settings-checkbox" id="skip-certificate-verification" type="checkbox" checked />
+                  </label>
+                </section>
+
+                <section class="settings-section settings-section-wide" aria-labelledby="settings-limits-title">
                   <h3 id="settings-limits-title">请求限制</h3>
                   <label class="settings-row">
                     <span>最大重定向</span>
@@ -214,25 +226,13 @@
                   </label>
                 </section>
 
-                <section class="settings-section" aria-labelledby="settings-security-title">
-                  <h3 id="settings-security-title">连接</h3>
-                  <label class="settings-row">
-                    <span>允许本机及局域网</span>
-                    <input class="settings-checkbox" id="allow-local-network" type="checkbox" />
-                  </label>
-                  <label class="settings-row">
-                    <span>跳过证书验证</span>
-                    <input class="settings-checkbox" id="skip-certificate-verification" type="checkbox" checked />
-                  </label>
-                </section>
-
               </div>
             </section>
             <section class="settings-pane" id="settings-pane-output" role="tabpanel" aria-labelledby="settings-tab-output" data-settings-pane="output" tabindex="0" hidden>
               <div class="settings-pane-heading">
                 <h2>输出</h2>
               </div>
-              <div class="settings-pane-sections">
+              <div class="settings-pane-sections settings-pane-grid">
                 <section class="settings-section" aria-labelledby="settings-output-title">
                   <h3 id="settings-output-title">输出结果</h3>
                   <label class="settings-row">
@@ -245,7 +245,21 @@
                   </label>
                 </section>
 
-                <section class="settings-section" aria-labelledby="settings-output-filter-title">
+                <section class="settings-section" aria-labelledby="settings-batch-rename-title">
+                  <h3 id="settings-batch-rename-title">批量重命名</h3>
+                  <div class="test-service-options batch-rename-options" role="group" aria-label="批量重命名字段">
+                    <label class="test-service-option"><input id="batch-rename-region" type="checkbox" checked /><span>地区</span></label>
+                    <label class="test-service-option"><input id="batch-rename-link-type" type="checkbox" checked /><span>链路类型</span></label>
+                    <label class="test-service-option"><input id="batch-rename-tcping" type="checkbox" checked /><span>TCPing 延迟</span></label>
+                    <label class="test-service-option"><input id="batch-rename-url204" type="checkbox" checked /><span>204 URL 延迟</span></label>
+                    <label class="test-service-option"><input id="batch-rename-average-speed" type="checkbox" checked /><span>平均下载速度</span></label>
+                    <label class="test-service-option"><input id="batch-rename-peak-speed" type="checkbox" /><span>峰值下载速度</span></label>
+                    <label class="test-service-option"><input id="batch-rename-unlock-summary" type="checkbox" /><span>解锁结果摘要</span></label>
+                    <label class="test-service-option"><input id="batch-rename-keep-original-name" type="checkbox" checked /><span>保留原名称</span></label>
+                  </div>
+                </section>
+
+                <section class="settings-section settings-section-wide" aria-labelledby="settings-output-filter-title">
                   <h3 id="settings-output-filter-title">当前结果筛选</h3>
                   <div class="settings-filter-groups">
                     <section class="output-rule-section settings-filter-group" aria-labelledby="output-filter-protocol-title">
@@ -297,20 +311,6 @@
                   </div>
                   <div class="settings-section-actions">
                     <button class="primary-button compact" id="output-filter-apply-button" type="button">应用筛选</button>
-                  </div>
-                </section>
-
-                <section class="settings-section" aria-labelledby="settings-batch-rename-title">
-                  <h3 id="settings-batch-rename-title">批量重命名</h3>
-                  <div class="test-service-options batch-rename-options" role="group" aria-label="批量重命名字段">
-                    <label class="test-service-option"><input id="batch-rename-region" type="checkbox" checked /><span>地区</span></label>
-                    <label class="test-service-option"><input id="batch-rename-link-type" type="checkbox" checked /><span>链路类型</span></label>
-                    <label class="test-service-option"><input id="batch-rename-tcping" type="checkbox" checked /><span>TCPing 延迟</span></label>
-                    <label class="test-service-option"><input id="batch-rename-url204" type="checkbox" checked /><span>204 URL 延迟</span></label>
-                    <label class="test-service-option"><input id="batch-rename-average-speed" type="checkbox" checked /><span>平均下载速度</span></label>
-                    <label class="test-service-option"><input id="batch-rename-peak-speed" type="checkbox" /><span>峰值下载速度</span></label>
-                    <label class="test-service-option"><input id="batch-rename-unlock-summary" type="checkbox" /><span>解锁结果摘要</span></label>
-                    <label class="test-service-option"><input id="batch-rename-keep-original-name" type="checkbox" checked /><span>保留原名称</span></label>
                   </div>
                 </section>
 
