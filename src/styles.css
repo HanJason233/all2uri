@@ -564,20 +564,6 @@ body.resizing-panels {
   border-top: 1px solid var(--border);
 }
 
-.settings-section-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.settings-section-actions .primary-button {
-  min-height: 34px;
-  padding: 0 16px;
-  font-size: 12px;
-}
-
 .settings-row {
   display: flex;
   min-height: 46px;
@@ -1638,41 +1624,6 @@ body.resizing-output-columns * {
   height: 13px;
   margin: 0;
   accent-color: var(--accent);
-}
-
-.output-rule-cf-select {
-  display: flex;
-  min-height: 36px;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 10px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-}
-
-.output-rule-cf-select select {
-  min-width: 112px;
-  min-height: 28px;
-  padding: 3px 6px;
-  color: var(--text);
-  font-size: 11px;
-  background: var(--surface-solid);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-
-.output-rule-cf-select select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.output-rule-cf-select select:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .output-global-actions {

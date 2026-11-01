@@ -59,7 +59,7 @@
                 <h2 id="result-title">输出</h2>
                 <div class="output-title-actions">
                   <button class="secondary-button" id="output-column-reset-button" type="button" title="恢复初始列宽">初始化列宽</button>
-                  <button class="secondary-button" id="output-filter-button" type="button" aria-haspopup="dialog" aria-controls="app-settings-dialog">筛选条件</button>
+                  <button class="secondary-button" id="output-filter-apply-button" type="button">应用筛选</button>
                   <button class="secondary-button" id="settings-button" type="button" aria-haspopup="dialog" aria-controls="app-settings-dialog">设置</button>
                 </div>
               </div>
@@ -288,29 +288,6 @@
                       </div>
                       <div class="output-rule-options" id="output-filter-region-options"></div>
                     </section>
-                    <section class="output-rule-section settings-filter-group" aria-labelledby="output-filter-cf-title">
-                      <div class="output-rule-section-heading">
-                        <div class="output-filter-section-title">
-                          <h3 id="output-filter-cf-title">链路入口</h3>
-                          <label class="output-filter-toggle">
-                            <input id="output-filter-cf-enabled" type="checkbox" aria-label="启用 CF 入口筛选" />
-                            <span>启用</span>
-                          </label>
-                        </div>
-                        <span id="output-filter-cf-summary">未启用</span>
-                      </div>
-                      <label class="output-rule-cf-select">
-                        <span>CF 入口类型</span>
-                        <select id="output-filter-cf-entry">
-                          <option value="all">请选择入口类型</option>
-                          <option value="yes">CF 入口</option>
-                          <option value="no">非 CF 入口</option>
-                        </select>
-                      </label>
-                    </section>
-                  </div>
-                  <div class="settings-section-actions">
-                    <button class="primary-button compact" id="output-filter-apply-button" type="button">应用筛选</button>
                   </div>
                 </section>
 
