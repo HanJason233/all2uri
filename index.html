@@ -142,9 +142,6 @@
             <button class="settings-nav-button" id="settings-tab-input" type="button" role="tab" aria-controls="settings-pane-input" aria-selected="true" data-settings-tab="input" tabindex="0">
               <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16v2L4 8V6zm2-4h12v2H6V2zm14 8H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-8c0-1.1-.9-2-2-2zm0 10H4v-8h16v8zm-10-7.27v6.53L16 16l-6-3.27z" /></svg>输入</span>
             </button>
-            <button class="settings-nav-button" id="settings-tab-network" type="button" role="tab" aria-controls="settings-pane-network" aria-selected="false" data-settings-tab="network" tabindex="-1">
-              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM3 14h7v7H3v-7zm11 0h7v7h-7v-7zm-3-3h2v2h5v2h-2v-1H8v1H6v-2h5v-2z" /></svg>网络</span>
-            </button>
             <button class="settings-nav-button" id="settings-tab-output" type="button" role="tab" aria-controls="settings-pane-output" aria-selected="false" data-settings-tab="output" tabindex="-1">
               <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 9h3v10H5V9zm5-4h3v14h-3V5zm5 7h3v7h-3v-7zm5-5h3v12h-3V7z" /></svg>输出</span>
             </button>
@@ -159,7 +156,6 @@
             <section class="settings-pane" id="settings-pane-input" role="tabpanel" aria-labelledby="settings-tab-input" data-settings-pane="input" tabindex="0">
               <div class="settings-pane-heading">
                 <h2>输入</h2>
-                <p>配置远程订阅的读取方式和请求标识。</p>
               </div>
               <div class="settings-pane-sections">
                 <section class="settings-section" aria-labelledby="settings-request-title">
@@ -190,14 +186,6 @@
                   />
                 </section>
 
-              </div>
-            </section>
-            <section class="settings-pane" id="settings-pane-network" role="tabpanel" aria-labelledby="settings-tab-network" data-settings-pane="network" tabindex="0" hidden>
-              <div class="settings-pane-heading">
-                <h2>网络</h2>
-                <p>调整请求并发、超时和订阅连接选项。</p>
-              </div>
-              <div class="settings-pane-sections">
                 <section class="settings-section" aria-labelledby="settings-limits-title">
                   <h3 id="settings-limits-title">请求限制</h3>
                   <label class="settings-row">
@@ -236,7 +224,6 @@
                     <span>跳过证书验证</span>
                     <input class="settings-checkbox" id="skip-certificate-verification" type="checkbox" checked />
                   </label>
-                  <p class="settings-warning" id="skip-certificate-note" hidden>证书校验已关闭，请确认订阅源可信。</p>
                 </section>
 
               </div>
@@ -244,7 +231,6 @@
             <section class="settings-pane" id="settings-pane-output" role="tabpanel" aria-labelledby="settings-tab-output" data-settings-pane="output" tabindex="0" hidden>
               <div class="settings-pane-heading">
                 <h2>输出</h2>
-                <p>设置转换结果处理方式和批量重命名字段。</p>
               </div>
               <div class="settings-pane-sections">
                 <section class="settings-section" aria-labelledby="settings-output-title">
@@ -261,7 +247,6 @@
 
                 <section class="settings-section" aria-labelledby="settings-output-filter-title">
                   <h3 id="settings-output-filter-title">当前结果筛选</h3>
-                  <p class="settings-section-description">只影响当前输出列表。调整条件后选择“应用筛选”生效。</p>
                   <div class="settings-filter-groups">
                     <section class="output-rule-section settings-filter-group" aria-labelledby="output-filter-protocol-title">
                       <div class="output-rule-section-heading">
@@ -308,7 +293,6 @@
                           <option value="no">非 CF 入口</option>
                         </select>
                       </label>
-                      <p class="output-rule-cf-description">此筛选使用链路类型检测中的 CDN 提供商结果；请先运行链路类型检测。</p>
                     </section>
                   </div>
                   <div class="settings-section-actions">
@@ -318,7 +302,6 @@
 
                 <section class="settings-section" aria-labelledby="settings-batch-rename-title">
                   <h3 id="settings-batch-rename-title">批量重命名</h3>
-                  <p class="settings-warning">名称按“地区 → 链路类型 → 测试结果 → 原名称”的顺序组合。仅处理当前筛选结果；尚未完成的测试项会跳过。</p>
                   <div class="test-service-options batch-rename-options" role="group" aria-label="批量重命名字段">
                     <label class="test-service-option"><input id="batch-rename-region" type="checkbox" checked /><span>地区</span></label>
                     <label class="test-service-option"><input id="batch-rename-link-type" type="checkbox" checked /><span>链路类型</span></label>
@@ -336,12 +319,10 @@
             <section class="settings-pane" id="settings-pane-detection" role="tabpanel" aria-labelledby="settings-tab-detection" data-settings-pane="detection" tabindex="0" hidden>
               <div class="settings-pane-heading">
                 <h2>节点检测</h2>
-                <p>为常用检测配置并发、超时和筛选规则；详细参数按需展开。</p>
               </div>
               <div class="settings-pane-sections">
                 <section class="settings-section" aria-labelledby="settings-node-test-title">
                   <h3 id="settings-node-test-title">检测参数</h3>
-                  <p class="settings-warning">测试参数保存在本机。并发选择“%”时，按当前筛选节点数计算。</p>
 
                   <details class="test-settings-group">
                     <summary>一键测试项目</summary>
@@ -523,7 +504,6 @@
             <section class="settings-pane" id="settings-pane-region" role="tabpanel" aria-labelledby="settings-tab-region" data-settings-pane="region" tabindex="0" hidden>
               <div class="settings-pane-heading">
                 <h2>地区识别</h2>
-                <p>管理地区查询顺序、并发和 GeoIP 数据源。</p>
               </div>
               <div class="settings-pane-sections">
                 <section class="settings-section" aria-labelledby="settings-region-lookup-title">
@@ -558,22 +538,18 @@
         <header class="output-rule-dialog-header qr-scanner-header">
           <div>
             <h2 id="qr-scanner-title">识别二维码</h2>
-            <p>选择二维码来源，识别出的内容会替换输入框。</p>
           </div>
           <button class="output-rule-dialog-close" id="qr-scanner-close" type="button" aria-label="关闭扫码">×</button>
         </header>
         <section class="qr-scanner-source-options" id="qr-scanner-source-options" role="group" aria-label="二维码来源">
           <button class="qr-source-option" id="qr-scan-screen-button" type="button">
             <span class="qr-source-option-title">屏幕扫描</span>
-            <span class="qr-source-option-description">直接截取所有屏幕当前画面并识别。</span>
           </button>
           <button class="qr-source-option" id="qr-select-image-button" type="button">
             <span class="qr-source-option-title">选择图片</span>
-            <span class="qr-source-option-description">从本地图片中识别二维码。</span>
           </button>
           <button class="qr-source-option" id="qr-scan-camera-button" type="button">
             <span class="qr-source-option-title">摄像头扫码</span>
-            <span class="qr-source-option-description">调用相机或电脑摄像头实时识别。</span>
           </button>
         </section>
         <input id="qr-image-input" type="file" accept="image/*" hidden />

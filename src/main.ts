@@ -510,7 +510,6 @@ const dom = {
   deduplicateOutput: getElement<HTMLInputElement>("deduplicate-output"),
   includeLossyOutput: getElement<HTMLInputElement>("include-lossy-output"),
   skipCertificateVerification: getElement<HTMLInputElement>("skip-certificate-verification"),
-  skipCertificateNote: getElement<HTMLParagraphElement>("skip-certificate-note"),
   allowLocalNetwork: getElement<HTMLInputElement>("allow-local-network"),
   convertButton: getElement<HTMLButtonElement>("convert-button"),
   convertLabel: getElement<HTMLSpanElement>("convert-button").querySelector<HTMLSpanElement>(".button-label")!,
@@ -2956,10 +2955,6 @@ function bindEvents() {
     if (!dom.customUserAgent.hidden) dom.customUserAgent.focus();
   });
 
-  dom.skipCertificateVerification.addEventListener("change", () => {
-    dom.skipCertificateNote.hidden = !shouldSkipCertificateVerification();
-  });
-  dom.skipCertificateNote.hidden = !shouldSkipCertificateVerification();
   dom.deduplicateOutput.addEventListener("change", refreshForOutputSettingChange);
   dom.includeLossyOutput.addEventListener("change", refreshForOutputSettingChange);
 

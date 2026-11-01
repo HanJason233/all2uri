@@ -509,13 +509,6 @@ body.resizing-panels {
   font-weight: 650;
 }
 
-.settings-pane-heading p {
-  margin: 5px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .settings-pane-sections {
   display: grid;
   gap: 12px;
@@ -534,13 +527,6 @@ body.resizing-panels {
   color: var(--text);
   font-size: 13px;
   font-weight: 600;
-}
-
-.settings-section-description {
-  margin: -1px 0 10px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.5;
 }
 
 .settings-filter-groups {
@@ -660,13 +646,6 @@ label.settings-row {
   height: 16px;
   margin: 0;
   accent-color: var(--accent);
-}
-
-.settings-warning {
-  margin: 4px 0 0;
-  color: var(--warning);
-  font-size: 11px;
-  line-height: 1.4;
 }
 
 .region-lookup-methods {
@@ -1351,13 +1330,6 @@ body.resizing-output-columns * {
   font-weight: 650;
 }
 
-.output-rule-dialog-header p {
-  margin: 7px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
 .output-rule-dialog-close {
   display: grid;
   flex: 0 0 auto;
@@ -1499,12 +1471,6 @@ body.resizing-output-columns * {
 .qr-source-option-title {
   font-size: 12px;
   font-weight: 650;
-}
-
-.qr-source-option-description {
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.45;
 }
 
 .qr-scanner-preview {
@@ -1653,13 +1619,6 @@ body.resizing-output-columns * {
 .output-rule-cf-select select:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-}
-
-.output-rule-cf-description {
-  margin: -3px 0 0;
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.5;
 }
 
 .output-global-actions {
