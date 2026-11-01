@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ProxyNode, ProxyProtocol } from "./core/model/proxy-node.ts";
 import { buildSingBoxTestProfile } from "./core/testing/sing-box.ts";
 
-export type NodeTestKind = "tcping" | "url204" | "bandwidth" | "linkType" | "unlock";
+export type NodeTestKind = "tcping" | "url204" | "bandwidth" | "entry" | "exit" | "unlock";
 type ConcurrencyMode = "count" | "percent";
 
 export interface NodeTestEntry {
@@ -41,7 +41,6 @@ export interface NodeTestResponse {
   downloadJitterMbps?: number;
   downloadSamples?: Array<{ durationMs: number; mbps: number }>;
   statusCode?: number;
-  linkType?: string;
   entryIps?: string[];
   exitIp?: string;
   cdnProvider?: string;
@@ -79,11 +78,10 @@ interface TestSettings {
   bandwidthAutoDeleteLowSpeedNodes: boolean;
   bandwidthAutoDeleteThresholdMbps: number;
 
-  linkTypeConcurrencyMode: ConcurrencyMode;
-  linkTypeConcurrency: number;
-  linkTypeAcceptDirect: boolean;
-  linkTypeAcceptRelay: boolean;
-  linkTypeAcceptCdnRelay: boolean;
+  entryConcurrencyMode: ConcurrencyMode;
+  entryConcurrency: number;
+  exitConcurrencyMode: ConcurrencyMode;
+  exitConcurrency: number;
 
   unlockConcurrencyMode: ConcurrencyMode;
   unlockConcurrency: number;
@@ -111,13 +109,14 @@ const DEFAULT_204_URL = "https://www.google.com/generate_204";
 const DEFAULT_204_BACKUP_URL = "https://www.gstatic.com/generate_204";
 const DEFAULT_BANDWIDTH_URL = "https://speed.cloudflare.com/__down?bytes=25000000";
 const SETTINGS_KEY = "all2uri.node-test-settings";
-const SETTINGS_SCHEMA_VERSION = 3;
-const TEST_KINDS: NodeTestKind[] = ["tcping", "url204", "bandwidth", "linkType", "unlock"];
+const SETTINGS_SCHEMA_VERSION = 4;
+const TEST_KINDS: NodeTestKind[] = ["tcping", "url204", "bandwidth", "entry", "exit", "unlock"];
 const TEST_KIND_LABELS: Record<NodeTestKind, string> = {
   tcping: "TCPing",
   url204: "204 URL",
   bandwidth: "传输质量",
-  linkType: "链路类型",
+  entry: "入口检测",
+  exit: "出口检测",
   unlock: "流媒体与 AI 解锁",
 };
 const UNLOCK_SERVICES: UnlockServiceDefinition[] = [
@@ -196,11 +195,10 @@ function defaultSettings(): TestSettings {
     bandwidthConcurrency: 10,
     bandwidthAutoDeleteLowSpeedNodes: true,
     bandwidthAutoDeleteThresholdMbps: 1,
-    linkTypeConcurrencyMode: "percent",
-    linkTypeConcurrency: 30,
-    linkTypeAcceptDirect: true,
-    linkTypeAcceptRelay: true,
-    linkTypeAcceptCdnRelay: true,
+    entryConcurrencyMode: "percent",
+    entryConcurrency: 30,
+    exitConcurrencyMode: "percent",
+    exitConcurrency: 30,
     unlockConcurrencyMode: "percent",
     unlockConcurrency: 30,
     unlockRequestConcurrency: 4,
@@ -236,8 +234,8 @@ function loadSettings(): TestSettings {
       if (parsed.bandwidthAutoDeleteLowSpeedNodes === false) parsed.bandwidthAutoDeleteLowSpeedNodes = true;
       if (parsed.bandwidthAutoDeleteThresholdMbps === 10) parsed.bandwidthAutoDeleteThresholdMbps = fallback.bandwidthAutoDeleteThresholdMbps;
       if (parsed.linkTypeConcurrencyMode === "count" && parsed.linkTypeConcurrency === 3) {
-        parsed.linkTypeConcurrencyMode = fallback.linkTypeConcurrencyMode;
-        parsed.linkTypeConcurrency = fallback.linkTypeConcurrency;
+        parsed.linkTypeConcurrencyMode = fallback.entryConcurrencyMode;
+        parsed.linkTypeConcurrency = fallback.entryConcurrency;
       }
       if (parsed.unlockConcurrencyMode === "count" && parsed.unlockConcurrency === 3) {
         parsed.unlockConcurrencyMode = fallback.unlockConcurrencyMode;
@@ -247,9 +245,12 @@ function loadSettings(): TestSettings {
     }
     const savedBandwidthConcurrencyMode = concurrencyMode(parsed.bandwidthConcurrencyMode ?? fallback.bandwidthConcurrencyMode);
     const savedBandwidthConcurrencyMax = savedBandwidthConcurrencyMode === "percent" ? 100 : 3;
-    const selectedTestKinds = Array.isArray(parsed.oneClickTestKinds)
-      ? parsed.oneClickTestKinds.filter((kind): kind is NodeTestKind => typeof kind === "string" && TEST_KINDS.includes(kind as NodeTestKind))
+    const storedTestKinds: unknown[] = Array.isArray(parsed.oneClickTestKinds)
+      ? parsed.oneClickTestKinds
       : fallback.oneClickTestKinds;
+    const selectedTestKinds = storedTestKinds
+      .flatMap(kind => kind === "linkType" ? ["entry", "exit"] : [kind])
+      .filter((kind): kind is NodeTestKind => typeof kind === "string" && TEST_KINDS.includes(kind as NodeTestKind));
     const settings: TestSettings = {
       oneClickTestKinds: [...new Set(selectedTestKinds)],
       tcpingTimeoutMs: clampNumber(String(parsed.tcpingTimeoutMs ?? legacyTimeout ?? fallback.tcpingTimeoutMs), fallback.tcpingTimeoutMs, 500, 120_000),
@@ -270,11 +271,10 @@ function loadSettings(): TestSettings {
       bandwidthConcurrency: clampNumber(String(parsed.bandwidthConcurrency ?? legacyConcurrency ?? fallback.bandwidthConcurrency), fallback.bandwidthConcurrency, 1, savedBandwidthConcurrencyMax),
       bandwidthAutoDeleteLowSpeedNodes: typeof parsed.bandwidthAutoDeleteLowSpeedNodes === "boolean" ? parsed.bandwidthAutoDeleteLowSpeedNodes : fallback.bandwidthAutoDeleteLowSpeedNodes,
       bandwidthAutoDeleteThresholdMbps: clampNumber(String(parsed.bandwidthAutoDeleteThresholdMbps ?? fallback.bandwidthAutoDeleteThresholdMbps), fallback.bandwidthAutoDeleteThresholdMbps, 1, 10_000),
-      linkTypeConcurrencyMode: concurrencyMode(parsed.linkTypeConcurrencyMode ?? fallback.linkTypeConcurrencyMode),
-      linkTypeConcurrency: clampNumber(String(parsed.linkTypeConcurrency ?? fallback.linkTypeConcurrency), fallback.linkTypeConcurrency, 1, 512),
-      linkTypeAcceptDirect: typeof parsed.linkTypeAcceptDirect === "boolean" ? parsed.linkTypeAcceptDirect : fallback.linkTypeAcceptDirect,
-      linkTypeAcceptRelay: typeof parsed.linkTypeAcceptRelay === "boolean" ? parsed.linkTypeAcceptRelay : fallback.linkTypeAcceptRelay,
-      linkTypeAcceptCdnRelay: typeof parsed.linkTypeAcceptCdnRelay === "boolean" ? parsed.linkTypeAcceptCdnRelay : fallback.linkTypeAcceptCdnRelay,
+      entryConcurrencyMode: concurrencyMode(parsed.entryConcurrencyMode ?? parsed.linkTypeConcurrencyMode ?? fallback.entryConcurrencyMode),
+      entryConcurrency: clampNumber(String(parsed.entryConcurrency ?? parsed.linkTypeConcurrency ?? fallback.entryConcurrency), fallback.entryConcurrency, 1, 512),
+      exitConcurrencyMode: concurrencyMode(parsed.exitConcurrencyMode ?? parsed.linkTypeConcurrencyMode ?? fallback.exitConcurrencyMode),
+      exitConcurrency: clampNumber(String(parsed.exitConcurrency ?? parsed.linkTypeConcurrency ?? fallback.exitConcurrency), fallback.exitConcurrency, 1, 512),
       unlockConcurrencyMode: concurrencyMode(parsed.unlockConcurrencyMode ?? fallback.unlockConcurrencyMode),
       unlockConcurrency: clampNumber(String(parsed.unlockConcurrency ?? fallback.unlockConcurrency), fallback.unlockConcurrency, 1, 512),
       unlockRequestConcurrency: clampNumber(String(parsed.unlockRequestConcurrency ?? fallback.unlockRequestConcurrency), fallback.unlockRequestConcurrency, 1, 12),
@@ -301,7 +301,8 @@ function kindLabel(kind: NodeTestKind): string {
     case "tcping": return "TCPing";
     case "url204": return "204 URL";
     case "bandwidth": return "\u4f20\u8f93\u8d28\u91cf";
-    case "linkType": return "\u94fe\u8def\u7c7b\u578b";
+    case "entry": return "\u5165\u53e3\u68c0\u6d4b";
+    case "exit": return "\u51fa\u53e3\u68c0\u6d4b";
     case "unlock": return "\u6d41\u5a92\u4f53\u4e0e AI \u89e3\u9501";
   }
 }
@@ -357,11 +358,9 @@ export function nodeTestResultText(state: NodeTestResultState | undefined, kind:
       const peak = result.downloadMaxMbps ?? result.downloadMbps;
       return `${result.downloadMbps.toFixed(1)}/${peak.toFixed(1)}M`;
     }
-    case "linkType":
-      if (result.linkType === "direct") return "\u76f4\u8fde";
-      if (result.linkType === "cdn-relay") return "CDN";
-      if (result.linkType === "relay") return "\u4e2d\u8f6c";
-      return "\u672a\u77e5";
+    case "entry":
+    case "exit":
+      return result.cdnProvider ?? "\u975e CDN";
     case "unlock": {
       const services = result.unlock ?? [];
       const unlocked = services.filter(item => item.state === "unlocked").length;
@@ -396,12 +395,14 @@ export function nodeTestResultTitle(state: NodeTestResultState | undefined, kind
       const samples = result.downloadSamples?.map(sample => `${sample.durationMs} ms: ${sample.mbps.toFixed(2)} Mbps`).join("\n") ?? "";
       return `\u5e73\u5747 ${average} Mbps \u00b7 \u5cf0\u503c ${peak} Mbps${jitter}${samples ? `\n\u9010\u79d2\uff1a\n${samples}` : ""}`;
     }
-    case "linkType": {
-      const label = result.linkType === "direct" ? "\u76f4\u8fde" : result.linkType === "cdn-relay" ? "CDN \u4e2d\u8f6c" : "\u666e\u901a\u4e2d\u8f6c";
-      const provider = result.cdnProvider ? ` \u00b7 ${result.cdnProvider}` : "";
-      const entry = result.entryIps?.length ? `\n\u5165\u53e3\uff1a${result.entryIps.join(", ")}` : "";
-      const exit = result.exitIp ? `\n\u51fa\u53e3\uff1a${result.exitIp}` : "";
-      return `${label}${provider}${entry}${exit}`;
+    case "entry":
+    case "exit": {
+      const role = kind === "entry" ? "\u5165\u53e3" : "\u51fa\u53e3";
+      const classification = result.cdnProvider ? `${result.cdnProvider} CDN` : "\u975e CDN";
+      const addresses = kind === "entry"
+        ? result.entryIps?.length ? `\nIP\uff1a${result.entryIps.join(", ")}` : ""
+        : result.exitIp ? `\nIP\uff1a${result.exitIp}` : "";
+      return `${role}\uff1a${classification}${addresses}`;
     }
     case "unlock":
       return (result.unlock ?? []).map(item => `${item.name}\uff1a${unlockStateLabel(item.state)}`).join("\n");
@@ -429,11 +430,10 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
   const bandwidthMode = byId<HTMLSelectElement>("node-test-bandwidth-concurrency-mode");
   const bandwidthAutoDelete = byId<HTMLInputElement>("node-test-bandwidth-auto-delete");
   const bandwidthThreshold = byId<HTMLInputElement>("node-test-bandwidth-threshold");
-  const linkTypeConcurrency = byId<HTMLInputElement>("node-test-linktype-concurrency");
-  const linkTypeMode = byId<HTMLSelectElement>("node-test-linktype-concurrency-mode");
-  const linkTypeAcceptDirect = byId<HTMLInputElement>("node-test-linktype-accept-direct");
-  const linkTypeAcceptRelay = byId<HTMLInputElement>("node-test-linktype-accept-relay");
-  const linkTypeAcceptCdn = byId<HTMLInputElement>("node-test-linktype-accept-cdn");
+  const entryConcurrency = byId<HTMLInputElement>("node-test-entry-concurrency");
+  const entryMode = byId<HTMLSelectElement>("node-test-entry-concurrency-mode");
+  const exitConcurrency = byId<HTMLInputElement>("node-test-exit-concurrency");
+  const exitMode = byId<HTMLSelectElement>("node-test-exit-concurrency-mode");
   const unlockConcurrency = byId<HTMLInputElement>("node-test-unlock-concurrency");
   const unlockMode = byId<HTMLSelectElement>("node-test-unlock-concurrency-mode");
   const unlockRequestConcurrency = byId<HTMLInputElement>("node-test-unlock-request-concurrency");
@@ -477,11 +477,10 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
       bandwidthConcurrency: clampNumber(bandwidthConcurrency.value, 10, 1, selectedBandwidthConcurrencyMode === "percent" ? 100 : 3),
       bandwidthAutoDeleteLowSpeedNodes: bandwidthAutoDelete.checked,
       bandwidthAutoDeleteThresholdMbps: clampNumber(bandwidthThreshold.value, 1, 1, 10_000),
-      linkTypeConcurrencyMode: concurrencyMode(linkTypeMode.value),
-      linkTypeConcurrency: clampNumber(linkTypeConcurrency.value, 30, 1, 512),
-      linkTypeAcceptDirect: linkTypeAcceptDirect.checked,
-      linkTypeAcceptRelay: linkTypeAcceptRelay.checked,
-      linkTypeAcceptCdnRelay: linkTypeAcceptCdn.checked,
+      entryConcurrencyMode: concurrencyMode(entryMode.value),
+      entryConcurrency: clampNumber(entryConcurrency.value, 30, 1, 512),
+      exitConcurrencyMode: concurrencyMode(exitMode.value),
+      exitConcurrency: clampNumber(exitConcurrency.value, 30, 1, 512),
       unlockConcurrencyMode: concurrencyMode(unlockMode.value),
       unlockConcurrency: clampNumber(unlockConcurrency.value, 30, 1, 512),
       unlockRequestConcurrency: clampNumber(unlockRequestConcurrency.value, 4, 1, 12),
@@ -567,11 +566,10 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     syncBandwidthConcurrencyRange();
     bandwidthAutoDelete.checked = settings.bandwidthAutoDeleteLowSpeedNodes;
     bandwidthThreshold.value = String(settings.bandwidthAutoDeleteThresholdMbps);
-    linkTypeConcurrency.value = String(settings.linkTypeConcurrency);
-    linkTypeMode.value = settings.linkTypeConcurrencyMode;
-    linkTypeAcceptDirect.checked = settings.linkTypeAcceptDirect;
-    linkTypeAcceptRelay.checked = settings.linkTypeAcceptRelay;
-    linkTypeAcceptCdn.checked = settings.linkTypeAcceptCdnRelay;
+    entryConcurrency.value = String(settings.entryConcurrency);
+    entryMode.value = settings.entryConcurrencyMode;
+    exitConcurrency.value = String(settings.exitConcurrency);
+    exitMode.value = settings.exitConcurrencyMode;
     unlockConcurrency.value = String(settings.unlockConcurrency);
     unlockMode.value = settings.unlockConcurrencyMode;
     unlockRequestConcurrency.value = String(settings.unlockRequestConcurrency);
@@ -586,7 +584,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     tcpingTimeout, tcpingConcurrency, tcpingMode, tcpingAutoDelete,
     url204, url204Backup, url204Warmup, url204Measurement, url204Concurrency, url204Mode, url204AutoDelete,
     bandwidthUrl, bandwidthDuration, bandwidthStreams, bandwidthConcurrency, bandwidthMode, bandwidthAutoDelete, bandwidthThreshold,
-    linkTypeConcurrency, linkTypeMode, linkTypeAcceptDirect, linkTypeAcceptRelay, linkTypeAcceptCdn,
+    entryConcurrency, entryMode, exitConcurrency, exitMode,
     unlockConcurrency, unlockMode, unlockRequestConcurrency, unlockServiceTimeout,
   ]) {
     input.addEventListener("change", persist);
@@ -610,9 +608,11 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
         ? effectiveConcurrency(settings.url204ConcurrencyMode, settings.url204Concurrency, entries.length, 32)
         : kind === "bandwidth"
           ? effectiveConcurrency(settings.bandwidthConcurrencyMode, settings.bandwidthConcurrency, entries.length, 3)
-          : kind === "linkType"
-            ? effectiveConcurrency(settings.linkTypeConcurrencyMode, settings.linkTypeConcurrency, entries.length, 32)
-            : effectiveConcurrency(settings.unlockConcurrencyMode, settings.unlockConcurrency, entries.length, 32);
+          : kind === "entry"
+            ? effectiveConcurrency(settings.entryConcurrencyMode, settings.entryConcurrency, entries.length, 32)
+            : kind === "exit"
+              ? effectiveConcurrency(settings.exitConcurrencyMode, settings.exitConcurrency, entries.length, 32)
+              : effectiveConcurrency(settings.unlockConcurrencyMode, settings.unlockConcurrency, entries.length, 32);
 
     running = true;
     refreshNodeTestButtons(true);
@@ -636,8 +636,8 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
         if (index >= entries.length) return;
         const entry = entries[index];
         try {
-          const profile = kind === "tcping" ? undefined : buildSingBoxTestProfile(entry.node);
-          if (kind !== "tcping" && !profile?.profile) {
+          const profile = kind === "tcping" || kind === "entry" ? undefined : buildSingBoxTestProfile(entry.node);
+          if (kind !== "tcping" && kind !== "entry" && !profile?.profile) {
             throw new Error(profile?.error ?? "\u65e0\u6cd5\u751f\u6210 sing-box \u914d\u7f6e");
           }
           const result = await invoke<NodeTestResponse>("run_node_test", {
@@ -655,7 +655,11 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
                   ? settings.url204MeasurementTimeoutMs
                   : kind === "bandwidth"
                     ? settings.bandwidthDurationMs + 6_000
-                  : settings.unlockServiceTimeoutMs,
+                    : kind === "entry"
+                      ? 5_000
+                      : kind === "exit"
+                        ? 10_000
+                        : settings.unlockServiceTimeoutMs,
               warmupTimeoutMs: kind === "url204" ? settings.url204WarmupTimeoutMs : null,
               measurementTimeoutMs: kind === "url204" ? settings.url204MeasurementTimeoutMs : null,
               durationMs: kind === "bandwidth" ? settings.bandwidthDurationMs : null,
@@ -664,17 +668,6 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
               unlockRequestConcurrency: kind === "unlock" ? settings.unlockRequestConcurrency : null,
             },
           });
-          if (kind === "linkType" && result.success) {
-            const accepted = result.linkType === "direct"
-              ? settings.linkTypeAcceptDirect
-              : result.linkType === "cdn-relay"
-                ? settings.linkTypeAcceptCdnRelay
-                : settings.linkTypeAcceptRelay;
-            if (!accepted) {
-              result.success = false;
-              result.error = "\u94fe\u8def\u7c7b\u578b\u4e0d\u5728\u5141\u8bb8\u8303\u56f4";
-            }
-          }
           setResult(entry.id, kind, {
             state: result.success ? "done" : "error",
             result,

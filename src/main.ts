@@ -65,7 +65,8 @@ interface OutputFilter {
 
 interface BatchRenameSettings {
   region: boolean;
-  linkType: boolean;
+  entry: boolean;
+  exit: boolean;
   tcping: boolean;
   url204: boolean;
   averageSpeed: boolean;
@@ -138,7 +139,8 @@ const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
 const BATCH_RENAME_SETTINGS_STORAGE_KEY = "all2uri.batch-rename-settings";
 const DEFAULT_BATCH_RENAME_SETTINGS: BatchRenameSettings = {
   region: true,
-  linkType: true,
+  entry: true,
+  exit: true,
   tcping: true,
   url204: true,
   averageSpeed: true,
@@ -161,7 +163,8 @@ const OUTPUT_COLUMN_DEFAULT_WIDTHS: Record<string, number> = {
   average: 140,
   peak: 140,
   perSecond: 120,
-  linkType: 110,
+  entry: 120,
+  exit: 120,
   ipRisk: 100,
 };
 const OUTPUT_COLUMN_MIN_WIDTH = 36;
@@ -232,10 +235,12 @@ function loadBatchRenameSettings(): BatchRenameSettings {
     if (stored === null) return { ...fallback };
     const parsed: unknown = JSON.parse(stored);
     if (typeof parsed !== "object" || parsed === null) return { ...fallback };
-    const candidate = parsed as Partial<BatchRenameSettings>;
+    const candidate = parsed as Partial<BatchRenameSettings> & { linkType?: unknown };
+    const legacyLinkType = typeof candidate.linkType === "boolean" ? candidate.linkType : fallback.entry;
     return {
       region: typeof candidate.region === "boolean" ? candidate.region : fallback.region,
-      linkType: typeof candidate.linkType === "boolean" ? candidate.linkType : fallback.linkType,
+      entry: typeof candidate.entry === "boolean" ? candidate.entry : legacyLinkType,
+      exit: typeof candidate.exit === "boolean" ? candidate.exit : legacyLinkType,
       tcping: typeof candidate.tcping === "boolean" ? candidate.tcping : fallback.tcping,
       url204: typeof candidate.url204 === "boolean" ? candidate.url204 : fallback.url204,
       averageSpeed: typeof candidate.averageSpeed === "boolean" ? candidate.averageSpeed : fallback.averageSpeed,
@@ -507,7 +512,8 @@ const dom = {
   clearLogButton: getElement<HTMLButtonElement>("clear-log-button"),
   batchRenameButton: getElement<HTMLButtonElement>("batch-rename-button"),
   batchRenameRegion: getElement<HTMLInputElement>("batch-rename-region"),
-  batchRenameLinkType: getElement<HTMLInputElement>("batch-rename-link-type"),
+  batchRenameEntry: getElement<HTMLInputElement>("batch-rename-entry"),
+  batchRenameExit: getElement<HTMLInputElement>("batch-rename-exit"),
   batchRenameTcping: getElement<HTMLInputElement>("batch-rename-tcping"),
   batchRenameUrl204: getElement<HTMLInputElement>("batch-rename-url204"),
   batchRenameAverageSpeed: getElement<HTMLInputElement>("batch-rename-average-speed"),
@@ -1612,23 +1618,29 @@ function speedSamplesCell(entryId: string): HTMLTableCellElement {
   return cell;
 }
 
-function linkTypeCell(entry: CategorizedOutput): HTMLTableCellElement {
-  const state = testCellState(entry.id, "linkType");
+function cdnProviderLabel(provider: string | undefined): string {
+  if (!provider) return "\u975e CDN";
+  return provider === "Cloudflare" ? "CF" : provider;
+}
+
+function cdnRenameLabel(provider: string | undefined, kind: "entry" | "exit"): string {
+  const role = kind === "entry" ? "\u5165\u53e3" : "\u51fa\u53e3";
+  return `${provider ? (provider === "Cloudflare" ? "CF" : provider) : "\u975eCDN"}${role}`;
+}
+
+function cdnDetectionCell(entry: CategorizedOutput, kind: "entry" | "exit"): HTMLTableCellElement {
+  const state = testCellState(entry.id, kind);
   const result = state.result;
-  const label = result?.linkType === "direct" ? "直连"
-    : result?.linkType === "cdn-relay" && result.cdnProvider === "Cloudflare" ? "CF中转"
-      : result?.linkType === "cdn-relay" ? "CDN中转"
-        : result?.linkType === "relay" ? "中转" : "—";
-  const stateLabel = state.state === "running" ? "检测中" : state.state === "error" ? "失败" : label;
-  const cell = textCell(stateLabel,
-    `output-table-result-cell is-${state.state}`);
+  const detected = state.state === "done" && result?.success === true;
+  const label = detected ? cdnProviderLabel(result?.cdnProvider) : "\u2014";
+  const stateLabel = state.state === "running" ? "\u68c0\u6d4b\u4e2d" : state.state === "error" ? "\u5931\u8d25" : label;
+  const cell = textCell(stateLabel, `output-table-result-cell is-${state.state}`);
   cell.title = result
     ? [
-      label,
-      result.cdnProvider,
-      result.entryIps?.length ? `入口 ${result.entryIps.join(", ")}` : "",
-      result.exitIp ? `出口 ${result.exitIp}` : "",
-    ].filter(Boolean).join(" · ")
+      result.cdnProvider ? `${result.cdnProvider} CDN` : "\u975e CDN",
+      kind === "entry" && result.entryIps?.length ? `\u5165\u53e3 ${result.entryIps.join(", ")}` : "",
+      kind === "exit" && result.exitIp ? `\u51fa\u53e3 ${result.exitIp}` : "",
+    ].filter(Boolean).join(" \u00b7 ")
     : state.title;
   return cell;
 }
@@ -1761,8 +1773,10 @@ function outputTableColumns(): OutputTableColumn[] {
     makeColumn("port", "端口", OUTPUT_COLUMN_DEFAULT_WIDTHS.port,
       entry => textCell(`${entry.port}`, "output-table-port"), "is-centered"),
     makeColumn("region", "节点地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.region, regionCell, "is-centered"),
-    makeColumn("linkType", "链路类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.linkType,
-      entry => linkTypeCell(entry), "is-centered"),
+    makeColumn("entry", "入口检测", OUTPUT_COLUMN_DEFAULT_WIDTHS.entry,
+      entry => cdnDetectionCell(entry, "entry"), "is-centered"),
+    makeColumn("exit", "出口检测", OUTPUT_COLUMN_DEFAULT_WIDTHS.exit,
+      entry => cdnDetectionCell(entry, "exit"), "is-centered"),
     ...measurements,
     makeColumn("average", "平均速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.average,
       entry => speedCell(entry.id, "downloadMbps"), "is-centered"),
@@ -2002,14 +2016,18 @@ function buildBatchRenameName(entry: CategorizedOutput): string | null {
     parts.push(countryNameForCode(entry.countryCode));
   }
 
-  if (settings.linkType) {
-    const state = nodeTestController?.getResult(entry.id, "linkType");
-    if (state?.state === "running") parts.push("链路检测中");
-    else if (state?.state === "error" || state?.result?.success === false) parts.push("链路失败");
-    else if (state?.result?.linkType === "direct") parts.push("直连");
-    else if (state?.result?.linkType === "cdn-relay" && state.result.cdnProvider === "Cloudflare") parts.push("CF中转");
-    else if (state?.result?.linkType === "cdn-relay") parts.push("CDN中转");
-    else if (state?.result?.linkType === "relay") parts.push("中转");
+  if (settings.entry) {
+    const state = nodeTestController?.getResult(entry.id, "entry");
+    if (state?.state === "running") parts.push("\u5165\u53e3\u68c0\u6d4b\u4e2d");
+    else if (state?.state === "error" || state?.result?.success === false) parts.push("\u5165\u53e3\u5931\u8d25");
+    else if (state?.result?.success) parts.push(cdnRenameLabel(state.result.cdnProvider, "entry"));
+  }
+
+  if (settings.exit) {
+    const state = nodeTestController?.getResult(entry.id, "exit");
+    if (state?.state === "running") parts.push("\u51fa\u53e3\u68c0\u6d4b\u4e2d");
+    else if (state?.state === "error" || state?.result?.success === false) parts.push("\u51fa\u53e3\u5931\u8d25");
+    else if (state?.result?.success) parts.push(cdnRenameLabel(state.result.cdnProvider, "exit"));
   }
 
   if (settings.tcping) {
@@ -2767,7 +2785,8 @@ async function saveOutputTableAsPng() {
 function bindEvents() {
   const batchRenameInputBindings: Array<[keyof BatchRenameSettings, HTMLInputElement]> = [
     ["region", dom.batchRenameRegion],
-    ["linkType", dom.batchRenameLinkType],
+    ["entry", dom.batchRenameEntry],
+    ["exit", dom.batchRenameExit],
     ["tcping", dom.batchRenameTcping],
     ["url204", dom.batchRenameUrl204],
     ["averageSpeed", dom.batchRenameAverageSpeed],

@@ -37,7 +37,7 @@ const EXIT_IP_URLS_IPV6_FIRST: [&str; 3] = [
     "https://api.ipify.org",
 ];
 
-// 链路类型检测用入口网段分类 CDN 中转，并在结果中标注提供商。
+// 入口/出口检测使用 CDN 网段分类，并在结果中标注提供商。
 const CDN_NETS: &[(&str, &str)] = &[
     ("Cloudflare", "103.21.244.0/22"),
     ("Cloudflare", "103.22.200.0/22"),
@@ -141,8 +141,6 @@ pub struct NodeTestResponse {
     download_samples: Vec<BandwidthSample>,
     #[serde(skip_serializing_if = "Option::is_none")]
     status_code: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    link_type: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     entry_ips: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -539,20 +537,30 @@ fn cdn_provider(ip: IpAddr) -> Option<&'static str> {
     })
 }
 
-async fn test_link_type(client: &Client, server: &str, port: u16) -> NodeTestResponse {
+async fn test_entry(server: &str, port: u16) -> NodeTestResponse {
     let entries = resolve_entries(server, port).await;
     if entries.is_empty() {
-        return NodeTestResponse::error("无法解析节点服务器入口地址");
+        return NodeTestResponse::error("\u{65e0}\u{6cd5}\u{89e3}\u{6790}\u{8282}\u{70b9}\u{670d}\u{52a1}\u{5668}\u{5165}\u{53e3}\u{5730}\u{5740}");
     }
-    let entry_addr = entries.iter().filter_map(|value| value.parse::<IpAddr>().ok()).collect::<Vec<_>>();
-    let prefer_ipv6 = entry_addr.iter().all(|address| address.is_ipv6());
-    // IPv6 节点优先查询 IPv6 出口，避免把同地址族的直连误判为中转。
+    let provider = entries
+        .iter()
+        .filter_map(|value| value.parse::<IpAddr>().ok())
+        .find_map(cdn_provider)
+        .map(str::to_string);
+    NodeTestResponse {
+        success: true,
+        entry_ips: entries,
+        cdn_provider: provider,
+        ..NodeTestResponse::default()
+    }
+}
+
+async fn fetch_exit_ip(client: &Client, prefer_ipv6: bool) -> Option<String> {
     let targets: &[&str] = if prefer_ipv6 {
         &EXIT_IP_URLS_IPV6_FIRST
     } else {
         &EXIT_IP_URLS_IPV4_FIRST
     };
-    let mut exit_ip = None;
     for url in targets {
         let Ok(response) = client.get(*url).send().await else {
             continue;
@@ -563,34 +571,32 @@ async fn test_link_type(client: &Client, server: &str, port: u16) -> NodeTestRes
         if let Ok(body) = response.text().await {
             let value = body.trim();
             if is_ip(value) {
-                exit_ip = Some(value.to_string());
-                break;
+                return Some(value.to_string());
             }
         }
     }
-    let Some(exit_ip) = exit_ip else {
-        return NodeTestResponse::error("无法获取有效出口 IP");
+    None
+}
+
+async fn test_exit(client: &Client, server: &str, port: u16) -> NodeTestResponse {
+    let entries = resolve_entries(server, port).await;
+    let prefer_ipv6 = !entries.is_empty()
+        && entries
+            .iter()
+            .filter_map(|value| value.parse::<IpAddr>().ok())
+            .all(|address| address.is_ipv6());
+    let Some(exit_ip) = fetch_exit_ip(client, prefer_ipv6).await else {
+        return NodeTestResponse::error("\u{65e0}\u{6cd5}\u{83b7}\u{53d6}\u{6709}\u{6548}\u{51fa}\u{53e3} IP");
     };
-    let exit_addr = exit_ip.parse::<IpAddr>().ok();
-    let direct = exit_addr.is_some_and(|value| entry_addr.contains(&value));
-    let provider = if direct {
-        None
-    } else {
-        entry_addr.iter().find_map(|ip| cdn_provider(*ip))
-    };
-    let link_type = if direct {
-        "direct"
-    } else if provider.is_some() {
-        "cdn-relay"
-    } else {
-        "relay"
-    };
+    let provider = exit_ip
+        .parse::<IpAddr>()
+        .ok()
+        .and_then(cdn_provider)
+        .map(str::to_string);
     NodeTestResponse {
         success: true,
-        link_type: Some(link_type.to_string()),
-        entry_ips: entries,
         exit_ip: Some(exit_ip),
-        cdn_provider: provider.map(str::to_string),
+        cdn_provider: provider,
         ..NodeTestResponse::default()
     }
 }
@@ -1198,6 +1204,9 @@ pub async fn run_node_test(
     if request.kind == "tcping" {
         return Ok(tcping(&request.server, request.port, timeout_ms).await);
     }
+    if request.kind == "entry" {
+        return Ok(test_entry(&request.server, request.port).await);
+    }
     if request.outbound.is_none() && request.endpoint.is_none() {
         return Ok(NodeTestResponse::error("当前节点没有可用的 sing-box 配置"));
     }
@@ -1230,7 +1239,7 @@ pub async fn run_node_test(
             bandwidth_duration_ms,
             request.bandwidth_streams.unwrap_or(4),
         ).await,
-        "linkType" => test_link_type(&client, &request.server, request.port).await,
+        "exit" => test_exit(&client, &request.server, request.port).await,
         "unlock" => test_unlock(
             &client,
             request.unlock_service_ids.as_deref(),
@@ -1238,4 +1247,29 @@ pub async fn run_node_test(
         ).await,
         other => NodeTestResponse::error(format!("未知测试类型：{other}")),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cdn_ranges_cover_ipv4_and_ipv6() {
+        assert_eq!(cdn_provider("104.16.0.1".parse().unwrap()), Some("Cloudflare"));
+        assert_eq!(cdn_provider("2606:4700::1111".parse().unwrap()), Some("Cloudflare"));
+        assert_eq!(cdn_provider("8.8.8.8".parse().unwrap()), None);
+    }
+
+    #[tokio::test]
+    async fn entry_detection_reports_cdn_and_non_cdn_entries() {
+        let cdn = test_entry("104.16.0.1", 443).await;
+        assert!(cdn.success);
+        assert_eq!(cdn.entry_ips, vec!["104.16.0.1".to_string()]);
+        assert_eq!(cdn.cdn_provider.as_deref(), Some("Cloudflare"));
+
+        let non_cdn = test_entry("8.8.8.8", 443).await;
+        assert!(non_cdn.success);
+        assert_eq!(non_cdn.entry_ips, vec!["8.8.8.8".to_string()]);
+        assert!(non_cdn.cdn_provider.is_none());
+    }
 }

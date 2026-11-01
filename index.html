@@ -97,7 +97,8 @@
                   <button class="secondary-button node-test-button" data-node-test-kind="tcping" type="button" disabled>TCPing</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="url204" type="button" disabled>204 URL</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="bandwidth" type="button" disabled>传输质量</button>
-                  <button class="secondary-button node-test-button" data-node-test-kind="linkType" type="button" disabled>链路类型</button>
+                  <button class="secondary-button node-test-button" data-node-test-kind="entry" type="button" disabled>入口检测</button>
+                  <button class="secondary-button node-test-button" data-node-test-kind="exit" type="button" disabled>出口检测</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="unlock" type="button" disabled>解锁</button>
                 </div>
                 <div class="output-utility-actions">
@@ -249,7 +250,8 @@
                   <h3 id="settings-batch-rename-title">批量重命名</h3>
                   <div class="test-service-options batch-rename-options" role="group" aria-label="批量重命名字段">
                     <label class="test-service-option"><input id="batch-rename-region" type="checkbox" checked /><span>地区</span></label>
-                    <label class="test-service-option"><input id="batch-rename-link-type" type="checkbox" checked /><span>链路类型</span></label>
+                    <label class="test-service-option"><input id="batch-rename-entry" type="checkbox" checked /><span>入口检测</span></label>
+                    <label class="test-service-option"><input id="batch-rename-exit" type="checkbox" checked /><span>出口检测</span></label>
                     <label class="test-service-option"><input id="batch-rename-tcping" type="checkbox" checked /><span>TCPing 延迟</span></label>
                     <label class="test-service-option"><input id="batch-rename-url204" type="checkbox" checked /><span>204 URL 延迟</span></label>
                     <label class="test-service-option"><input id="batch-rename-average-speed" type="checkbox" checked /><span>平均下载速度</span></label>
@@ -421,28 +423,26 @@
                   </details>
 
                   <details class="test-settings-group">
-                    <summary>链路类型</summary>
+                    <summary>入口 / 出口检测</summary>
                     <label class="settings-row">
-                      <span>并发</span>
+                      <span>入口并发</span>
                       <span class="settings-value settings-value-concurrency">
-                        <input id="node-test-linktype-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="30" inputmode="numeric" />
-                        <select id="node-test-linktype-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="??????????">
+                        <input id="node-test-entry-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="30" inputmode="numeric" />
+                        <select id="node-test-entry-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="入口检测并发单位">
                           <option value="percent" selected>%</option>
                           <option value="count">个</option>
                         </select>
                       </span>
                     </label>
                     <label class="settings-row">
-                      <span>接受直连</span>
-                      <input class="settings-checkbox" id="node-test-linktype-accept-direct" type="checkbox" checked />
-                    </label>
-                    <label class="settings-row">
-                      <span>接受普通中转</span>
-                      <input class="settings-checkbox" id="node-test-linktype-accept-relay" type="checkbox" checked />
-                    </label>
-                    <label class="settings-row">
-                      <span>接受 CDN 中转</span>
-                      <input class="settings-checkbox" id="node-test-linktype-accept-cdn" type="checkbox" checked />
+                      <span>出口并发</span>
+                      <span class="settings-value settings-value-concurrency">
+                        <input id="node-test-exit-concurrency" class="settings-control settings-number" type="number" min="1" max="512" step="1" value="30" inputmode="numeric" />
+                        <select id="node-test-exit-concurrency-mode" class="settings-control settings-concurrency-mode" aria-label="出口检测并发单位">
+                          <option value="percent" selected>%</option>
+                          <option value="count">个</option>
+                        </select>
+                      </span>
                     </label>
                   </details>
 
