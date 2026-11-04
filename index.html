@@ -152,9 +152,6 @@
             <button class="settings-nav-button" id="settings-tab-detection" type="button" role="tab" aria-controls="settings-pane-detection" aria-selected="false" data-settings-tab="detection" tabindex="-1">
               <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2 4 5v6c0 5.2 3.4 9.8 8 11 4.6-1.2 8-5.8 8-11V5l-8-3zm0 3.2 5 1.9V11c0 3.7-2.1 7.1-5 8.3-2.9-1.2-5-4.6-5-8.3V7.1l5-1.9zm-1 9.4-2-2-1.4 1.4L11 17l5.4-5.4L15 10.2l-4 4.4z" /></svg>节点检测</span>
             </button>
-            <button class="settings-nav-button" id="settings-tab-region" type="button" role="tab" aria-controls="settings-pane-region" aria-selected="false" data-settings-tab="region" tabindex="-1">
-              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Zm6.92 6h-2.95a15.7 15.7 0 0 0-1.5-3.5A8.03 8.03 0 0 1 18.92 8ZM12 4c.83 1.2 1.48 2.53 1.87 4h-3.74C10.52 6.53 11.17 5.2 12 4ZM4.26 14A8.15 8.15 0 0 1 4 12c0-.69.1-1.36.26-2h3.38a16.78 16.78 0 0 0 0 4H4.26Zm.82 2h2.95c.32 1.25.82 2.45 1.5 3.5A8.03 8.03 0 0 1 5.08 16Zm2.95-8H5.08a8.03 8.03 0 0 1 4.45-3.5A15.7 15.7 0 0 0 8.03 8ZM12 20a13.7 13.7 0 0 1-1.87-4h3.74A13.7 13.7 0 0 1 12 20Zm2.34-6H9.66a14.46 14.46 0 0 1 0-4h4.68a14.46 14.46 0 0 1 0 4Zm.13 5.5c.68-1.05 1.18-2.25 1.5-3.5h2.95a8.03 8.03 0 0 1-4.45 3.5ZM16.36 14a16.78 16.78 0 0 0 0-4h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38Z" /></svg>节点地区</span>
-            </button>
           </nav>
           <div class="settings-content" id="settings-content">
             <section class="settings-pane" id="settings-pane-input" role="tabpanel" aria-labelledby="settings-tab-input" data-settings-pane="input" tabindex="0">
@@ -494,21 +491,20 @@
                       </details>
                       <details class="test-settings-group link-detection-category">
                         <summary><span class="link-detection-category-name">地区检测</span><input id="node-test-entry-region-enabled" class="settings-toggle" type="checkbox" checked aria-label="启用入口地区检测" /></summary>
-                        <div class="settings-row settings-row-wide"><span>地区查询源（入口 / 出口共用）</span></div>
-                        <div class="region-lookup-methods" id="detected-ip-region-methods" role="group" aria-label="入口和出口 IP 地区查询方式"></div>
+                        <div class="region-lookup-methods" id="entry-region-methods" role="group" aria-label="入口地区查询方式"></div>
                         <label class="settings-row">
-                          <span>IP 地区查询并发</span>
+                          <span>地区查询并发</span>
                           <span class="settings-value">
-                            <input id="detected-ip-region-concurrency" class="settings-control settings-number" type="number" min="1" step="1" value="8" inputmode="numeric" />
+                            <input id="entry-region-concurrency" class="settings-control settings-number" type="number" min="1" step="1" value="8" inputmode="numeric" />
                             <span>个</span>
                           </span>
                         </label>
                         <div class="settings-row settings-database-row">
-                          <span>IP GeoIP 数据文件</span>
+                          <span>本地 GeoIP 数据库</span>
                           <div class="settings-inline-actions">
-                            <span class="region-database-name" id="detected-ip-geoip-database-name">内置 geoip.dat</span>
-                            <button class="settings-button" id="choose-detected-ip-geoip-database" type="button">选择</button>
-                            <button class="settings-button" id="clear-detected-ip-geoip-database" type="button" disabled>恢复</button>
+                            <span class="region-database-name" id="entry-geoip-database-name">内置 geoip.dat</span>
+                            <button class="settings-button" id="choose-entry-geoip-database" type="button">选择</button>
+                            <button class="settings-button" id="clear-entry-geoip-database" type="button" disabled>恢复</button>
                           </div>
                         </div>
                       </details>
@@ -561,7 +557,22 @@
                       </details>
                       <details class="test-settings-group link-detection-category">
                         <summary><span class="link-detection-category-name">地区检测</span><input id="node-test-exit-region-enabled" class="settings-toggle" type="checkbox" checked aria-label="启用出口地区检测" /></summary>
-                        <div class="settings-row"><span>地区查询</span><span>共用入口地区设置</span></div>
+                        <div class="region-lookup-methods" id="exit-region-methods" role="group" aria-label="出口地区查询方式"></div>
+                        <label class="settings-row">
+                          <span>地区查询并发</span>
+                          <span class="settings-value">
+                            <input id="exit-region-concurrency" class="settings-control settings-number" type="number" min="1" step="1" value="8" inputmode="numeric" />
+                            <span>个</span>
+                          </span>
+                        </label>
+                        <div class="settings-row settings-database-row">
+                          <span>本地 GeoIP 数据库</span>
+                          <div class="settings-inline-actions">
+                            <span class="region-database-name" id="exit-geoip-database-name">内置 geoip.dat</span>
+                            <button class="settings-button" id="choose-exit-geoip-database" type="button">选择</button>
+                            <button class="settings-button" id="clear-exit-geoip-database" type="button" disabled>恢复</button>
+                          </div>
+                        </div>
                       </details>
                       <details class="test-settings-group link-detection-category">
                         <summary><span class="link-detection-category-name">类型检测</span><input id="node-test-exit-type-enabled" class="settings-toggle" type="checkbox" checked aria-label="启用出口类型检测" /></summary>
@@ -598,34 +609,6 @@
                     </label>
                     <div class="test-service-options" id="node-test-unlock-services"></div>
                   </details>
-                </section>
-
-              </div>
-            </section>
-            <section class="settings-pane" id="settings-pane-region" role="tabpanel" aria-labelledby="settings-tab-region" data-settings-pane="region" tabindex="0" hidden>
-              <div class="settings-pane-heading">
-                <h2>节点地区识别</h2>
-              </div>
-              <div class="settings-pane-sections">
-                <section class="settings-section" aria-labelledby="settings-region-lookup-title">
-                  <h3 id="settings-region-lookup-title">节点地区查询</h3>
-                  <p class="settings-description">用于节点地区筛选和批量重命名。入口 IP、出口 IP 的地区查询在“节点检测”中设置。</p>
-                  <div class="region-lookup-methods" id="region-lookup-methods" role="group" aria-label="地区查询方式"></div>
-                  <label class="settings-row">
-                    <span>地区查询并发</span>
-                    <span class="settings-value">
-                      <input id="region-lookup-concurrency" class="settings-control settings-number" type="number" min="1" step="1" value="8" inputmode="numeric" />
-                      <span>个</span>
-                    </span>
-                  </label>
-                  <div class="settings-row settings-database-row">
-                    <span>GeoIP 数据文件</span>
-                    <div class="settings-inline-actions">
-                      <span class="region-database-name" id="geoip-database-name">内置 geoip.dat</span>
-                      <button class="settings-button" id="choose-geoip-database" type="button">选择</button>
-                      <button class="settings-button" id="clear-geoip-database" type="button" disabled>恢复</button>
-                    </div>
-                  </div>
                 </section>
 
               </div>

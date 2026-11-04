@@ -136,13 +136,19 @@ const OUTPUT_PROTOCOLS: Array<{ value: ProxyProtocol; label: string }> = [
 const OUTPUT_FILTER_STORAGE_KEY = "all2uri.output-filter";
 const OUTPUT_COLUMN_WIDTHS_STORAGE_KEY = "all2uri.output-table-column-widths.v2";
 const OUTPUT_COLUMN_VISIBILITY_STORAGE_KEY = "all2uri.output-table-column-visibility.v1";
-const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
-const REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency";
-const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
-const DETECTED_IP_REGION_METHODS_STORAGE_KEY = "all2uri.detected-ip-region-methods";
-const DETECTED_IP_REGION_CONCURRENCY_STORAGE_KEY = "all2uri.detected-ip-region-concurrency";
-const DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.detected-ip-geoip-database-path";
-const DEFAULT_DETECTED_IP_REGION_METHODS: RegionLookupMethod[] = ["LOCAL_GEOIP", "REMOTE_API"];
+const ENTRY_REGION_METHODS_STORAGE_KEY = "all2uri.entry-region-methods";
+const EXIT_REGION_METHODS_STORAGE_KEY = "all2uri.exit-region-methods";
+const ENTRY_REGION_CONCURRENCY_STORAGE_KEY = "all2uri.entry-region-concurrency";
+const EXIT_REGION_CONCURRENCY_STORAGE_KEY = "all2uri.exit-region-concurrency";
+const ENTRY_GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.entry-geoip-database-path";
+const EXIT_GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.exit-geoip-database-path";
+const LEGACY_REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
+const LEGACY_REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency";
+const LEGACY_GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
+const LEGACY_DETECTED_IP_REGION_METHODS_STORAGE_KEY = "all2uri.detected-ip-region-methods";
+const LEGACY_DETECTED_IP_REGION_CONCURRENCY_STORAGE_KEY = "all2uri.detected-ip-region-concurrency";
+const LEGACY_DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.detected-ip-geoip-database-path";
+const DEFAULT_EXIT_REGION_METHODS: RegionLookupMethod[] = ["LOCAL_GEOIP", "REMOTE_API"];
 const BATCH_RENAME_SETTINGS_STORAGE_KEY = "all2uri.batch-rename-settings";
 const DEFAULT_BATCH_RENAME_SETTINGS: BatchRenameSettings = {
   region: true,
@@ -207,73 +213,109 @@ function isRegionLookupMethod(value: unknown): value is RegionLookupMethod {
   return typeof value === "string" && REGION_LOOKUP_OPTIONS.some(item => item.value === value);
 }
 
-function loadRegionLookupMethods(): RegionLookupMethod[] {
+function loadRegionMethodsFromStorage(
+  storageKey: string,
+  availableMethods: RegionLookupMethod[],
+  fallback: RegionLookupMethod[],
+): RegionLookupMethod[] | null {
   try {
-    const stored = window.localStorage.getItem(REGION_LOOKUP_METHODS_STORAGE_KEY);
-    if (stored === null) return [...DEFAULT_REGION_LOOKUP_METHODS];
+    const stored = window.localStorage.getItem(storageKey);
+    if (stored === null) return null;
     const parsed: unknown = JSON.parse(stored);
-    return Array.isArray(parsed) ? [...new Set(parsed.filter(isRegionLookupMethod))] : [...DEFAULT_REGION_LOOKUP_METHODS];
+    return Array.isArray(parsed)
+      ? [...new Set(parsed.filter(isRegionLookupMethod).filter(method => availableMethods.includes(method)))]
+      : [...fallback];
   } catch {
-    return [...DEFAULT_REGION_LOOKUP_METHODS];
+    return [...fallback];
   }
 }
 
-function loadRegionLookupConcurrency(): number {
+function loadLegacyRegionLookupMethods(): RegionLookupMethod[] {
+  return loadRegionMethodsFromStorage(
+    LEGACY_REGION_LOOKUP_METHODS_STORAGE_KEY,
+    REGION_LOOKUP_OPTIONS.map(option => option.value),
+    [...DEFAULT_REGION_LOOKUP_METHODS],
+  ) ?? [...DEFAULT_REGION_LOOKUP_METHODS];
+}
+
+function loadLegacyDetectedIpRegionMethods(): RegionLookupMethod[] {
+  return loadRegionMethodsFromStorage(
+    LEGACY_DETECTED_IP_REGION_METHODS_STORAGE_KEY,
+    DEFAULT_EXIT_REGION_METHODS,
+    loadLegacyRegionLookupMethods().filter(method => method !== "NODE_NAME"),
+  ) ?? loadLegacyRegionLookupMethods().filter(method => method !== "NODE_NAME");
+}
+
+function loadEntryRegionMethods(): RegionLookupMethod[] {
+  const stored = loadRegionMethodsFromStorage(
+    ENTRY_REGION_METHODS_STORAGE_KEY,
+    REGION_LOOKUP_OPTIONS.map(option => option.value),
+    [...DEFAULT_REGION_LOOKUP_METHODS],
+  );
+  if (stored !== null) return stored;
+  const legacyNodeMethods = loadLegacyRegionLookupMethods();
+  const legacyIpMethods = loadLegacyDetectedIpRegionMethods();
+  const migrated = [
+    ...(legacyNodeMethods.includes("NODE_NAME") ? ["NODE_NAME" as const] : []),
+    ...legacyIpMethods,
+  ];
+  return [...new Set(migrated.length ? migrated : DEFAULT_REGION_LOOKUP_METHODS)];
+}
+
+function loadExitRegionMethods(): RegionLookupMethod[] {
+  return loadRegionMethodsFromStorage(
+    EXIT_REGION_METHODS_STORAGE_KEY,
+    DEFAULT_EXIT_REGION_METHODS,
+    [...DEFAULT_EXIT_REGION_METHODS],
+  ) ?? loadLegacyDetectedIpRegionMethods();
+}
+
+function storedRegionConcurrency(storageKey: string): number | null {
   try {
-    const stored = Number(window.localStorage.getItem(REGION_LOOKUP_CONCURRENCY_STORAGE_KEY));
-    return Number.isInteger(stored)
-      && stored >= MIN_REGION_LOOKUP_CONCURRENCY
-      ? stored
-      : DEFAULT_REGION_LOOKUP_CONCURRENCY;
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw === null) return null;
+    const value = Number(raw);
+    return Number.isInteger(value) && value >= MIN_REGION_LOOKUP_CONCURRENCY ? value : DEFAULT_REGION_LOOKUP_CONCURRENCY;
   } catch {
     return DEFAULT_REGION_LOOKUP_CONCURRENCY;
   }
 }
 
-function loadGeoIpDatabasePath(): string {
-  try {
-    return window.localStorage.getItem(GEOIP_DATABASE_PATH_STORAGE_KEY) ?? "";
-  } catch {
-    return "";
-  }
+function loadEntryRegionConcurrency(): number {
+  return storedRegionConcurrency(ENTRY_REGION_CONCURRENCY_STORAGE_KEY)
+    ?? storedRegionConcurrency(LEGACY_DETECTED_IP_REGION_CONCURRENCY_STORAGE_KEY)
+    ?? storedRegionConcurrency(LEGACY_REGION_LOOKUP_CONCURRENCY_STORAGE_KEY)
+    ?? DEFAULT_REGION_LOOKUP_CONCURRENCY;
 }
 
-function loadDetectedIpRegionMethods(): RegionLookupMethod[] {
-  try {
-    const stored = window.localStorage.getItem(DETECTED_IP_REGION_METHODS_STORAGE_KEY);
-    if (stored !== null) {
-      const parsed: unknown = JSON.parse(stored);
-      return Array.isArray(parsed) ? [...new Set(parsed.filter(isRegionLookupMethod).filter(method => method !== "NODE_NAME"))] : [...DEFAULT_DETECTED_IP_REGION_METHODS];
-    }
-  } catch {
-    return [...DEFAULT_DETECTED_IP_REGION_METHODS];
-  }
-  return loadRegionLookupMethods().filter(method => method !== "NODE_NAME");
+function loadExitRegionConcurrency(): number {
+  return storedRegionConcurrency(EXIT_REGION_CONCURRENCY_STORAGE_KEY)
+    ?? storedRegionConcurrency(LEGACY_DETECTED_IP_REGION_CONCURRENCY_STORAGE_KEY)
+    ?? DEFAULT_REGION_LOOKUP_CONCURRENCY;
 }
 
-function loadDetectedIpRegionConcurrency(): number {
+function loadEntryGeoIpDatabasePath(): string {
   try {
-    const storedValue = window.localStorage.getItem(DETECTED_IP_REGION_CONCURRENCY_STORAGE_KEY);
-    if (storedValue !== null) {
-      const stored = Number(storedValue);
-      return Number.isInteger(stored) && stored >= MIN_REGION_LOOKUP_CONCURRENCY
-        ? stored
-        : DEFAULT_REGION_LOOKUP_CONCURRENCY;
-    }
-  } catch {
-    return DEFAULT_REGION_LOOKUP_CONCURRENCY;
-  }
-  return loadRegionLookupConcurrency();
-}
-
-function loadDetectedIpGeoIpDatabasePath(): string {
-  try {
-    const stored = window.localStorage.getItem(DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY);
+    const stored = window.localStorage.getItem(ENTRY_GEOIP_DATABASE_PATH_STORAGE_KEY);
     if (stored !== null) return stored;
+    const nodePath = window.localStorage.getItem(LEGACY_GEOIP_DATABASE_PATH_STORAGE_KEY);
+    const detectedPath = window.localStorage.getItem(LEGACY_DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY);
+    return nodePath ?? detectedPath ?? "";
   } catch {
     return "";
   }
-  return loadGeoIpDatabasePath();
+}
+
+function loadExitGeoIpDatabasePath(): string {
+  try {
+    const stored = window.localStorage.getItem(EXIT_GEOIP_DATABASE_PATH_STORAGE_KEY);
+    if (stored !== null) return stored;
+    const detectedPath = window.localStorage.getItem(LEGACY_DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY);
+    const nodePath = window.localStorage.getItem(LEGACY_GEOIP_DATABASE_PATH_STORAGE_KEY);
+    return detectedPath ?? nodePath ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function loadBatchRenameSettings(): BatchRenameSettings {
@@ -395,43 +437,52 @@ function saveOutputColumnVisibility() {
   }
 }
 
-function saveRegionLookupMethods() {
+function saveEntryRegionMethods() {
   try {
-    window.localStorage.setItem(REGION_LOOKUP_METHODS_STORAGE_KEY, JSON.stringify(regionLookupMethods));
+    window.localStorage.setItem(ENTRY_REGION_METHODS_STORAGE_KEY, JSON.stringify(entryRegionMethods));
   } catch {
     // 查询规则仍可在当前会话中使用；存储不可用时忽略持久化错误。
   }
 }
 
-function saveRegionLookupConcurrency() {
+function saveExitRegionMethods() {
   try {
-    window.localStorage.setItem(REGION_LOOKUP_CONCURRENCY_STORAGE_KEY, String(regionLookupConcurrency));
+    window.localStorage.setItem(EXIT_REGION_METHODS_STORAGE_KEY, JSON.stringify(exitRegionMethods));
+  } catch {
+    // 查询规则仍可在当前会话中使用；存储不可用时忽略持久化错误。
+  }
+}
+
+function saveEntryRegionConcurrency() {
+  try {
+    window.localStorage.setItem(ENTRY_REGION_CONCURRENCY_STORAGE_KEY, String(entryRegionConcurrency));
   } catch {
     return;
   }
 }
 
-function saveDetectedIpRegionMethods() {
+function saveExitRegionConcurrency() {
   try {
-    window.localStorage.setItem(DETECTED_IP_REGION_METHODS_STORAGE_KEY, JSON.stringify(detectedIpRegionMethods));
+    window.localStorage.setItem(EXIT_REGION_CONCURRENCY_STORAGE_KEY, String(exitRegionConcurrency));
   } catch {
-    // IP 地区查询方法仍可在当前会话中使用；存储不可用时忽略持久化错误。
+    return;
   }
 }
 
-function saveDetectedIpRegionConcurrency() {
+function saveEntryGeoIpDatabasePath() {
   try {
-    window.localStorage.setItem(DETECTED_IP_REGION_CONCURRENCY_STORAGE_KEY, String(detectedIpRegionConcurrency));
+    window.localStorage.setItem(ENTRY_GEOIP_DATABASE_PATH_STORAGE_KEY, entryGeoIpDatabasePath);
   } catch {
-    // IP 地区查询并发仍可在当前会话中调整；存储不可用时忽略持久化错误。
+    // 入口数据库仍可在当前会话中使用；存储不可用时忽略持久化错误。
   }
 }
 
-function updateRegionLookupMethods(methods: RegionLookupMethod[]) {
-  regionLookupMethods = [...new Set(methods)];
-  saveRegionLookupMethods();
-  renderRegionLookupSettings();
-  if (!running && outputEntries.length > 0) void enrichOutputRegions();
+function saveExitGeoIpDatabasePath() {
+  try {
+    window.localStorage.setItem(EXIT_GEOIP_DATABASE_PATH_STORAGE_KEY, exitGeoIpDatabasePath);
+  } catch {
+    // 出口数据库仍可在当前会话中使用；存储不可用时忽略持久化错误。
+  }
 }
 
 function renderRegionLookupOptions(
@@ -507,32 +558,79 @@ function renderRegionLookupOptions(
   }
 }
 
-function renderRegionLookupSettings() {
-  renderRegionLookupOptions(dom.regionLookupMethods, regionLookupMethods, REGION_LOOKUP_OPTIONS, updateRegionLookupMethods);
-  const databaseName = geoIpDatabasePath.split(/[\\/]/).pop();
-  dom.geoIpDatabaseName.textContent = databaseName || "内置 geoip.dat";
-  dom.geoIpDatabaseName.title = geoIpDatabasePath || "自动使用安装包内置数据库";
-  dom.clearGeoIpDatabaseButton.disabled = !geoIpDatabasePath;
+function updateEntryRegionMethods(methods: RegionLookupMethod[]) {
+  entryRegionMethods = [...new Set(methods)];
+  saveEntryRegionMethods();
+  renderEntryRegionSettings();
+  queueDetectedIpRegionLookups();
+  if (!running && outputEntries.length > 0) {
+    regionLookupState = "idle";
+    void enrichOutputRegions();
+  }
 }
 
-function updateDetectedIpRegionMethods(methods: RegionLookupMethod[]) {
-  detectedIpRegionMethods = [...new Set(methods.filter(method => method !== "NODE_NAME"))];
-  saveDetectedIpRegionMethods();
-  renderDetectedIpRegionSettings();
+function updateExitRegionMethods(methods: RegionLookupMethod[]) {
+  exitRegionMethods = [...new Set(methods.filter(method => method !== "NODE_NAME"))];
+  saveExitRegionMethods();
+  renderExitRegionSettings();
   queueDetectedIpRegionLookups();
   renderOutputFilter();
 }
 
-function renderDetectedIpRegionSettings() {
-  const methods = REGION_LOOKUP_OPTIONS.filter(option => option.value !== "NODE_NAME");
-  renderRegionLookupOptions(dom.detectedIpRegionMethods, detectedIpRegionMethods, methods, updateDetectedIpRegionMethods);
-  const databaseName = detectedIpGeoIpDatabasePath.split(/[\\/]/).pop();
-  dom.detectedIpGeoIpDatabaseName.textContent = databaseName || "内置 geoip.dat";
-  dom.detectedIpGeoIpDatabaseName.title = detectedIpGeoIpDatabasePath || "自动使用安装包内置数据库";
-  dom.clearDetectedIpGeoIpDatabaseButton.disabled = !detectedIpGeoIpDatabasePath;
+function renderEntryRegionSettings() {
+  renderRegionLookupOptions(dom.entryRegionMethods, entryRegionMethods, REGION_LOOKUP_OPTIONS, updateEntryRegionMethods);
+  const databaseName = entryGeoIpDatabasePath.split(/[\\/]/).pop();
+  dom.entryGeoIpDatabaseName.textContent = databaseName || "内置 geoip.dat";
+  dom.entryGeoIpDatabaseName.title = entryGeoIpDatabasePath || "自动使用安装包内置数据库";
+  dom.clearEntryGeoIpDatabaseButton.disabled = !entryGeoIpDatabasePath;
+  dom.entryRegionConcurrency.value = String(entryRegionConcurrency);
 }
 
-async function chooseGeoIpDatabase() {
+function renderExitRegionSettings() {
+  const methods = REGION_LOOKUP_OPTIONS.filter(option => option.value !== "NODE_NAME");
+  renderRegionLookupOptions(dom.exitRegionMethods, exitRegionMethods, methods, updateExitRegionMethods);
+  const databaseName = exitGeoIpDatabasePath.split(/[\\/]/).pop();
+  dom.exitGeoIpDatabaseName.textContent = databaseName || "内置 geoip.dat";
+  dom.exitGeoIpDatabaseName.title = exitGeoIpDatabasePath || "自动使用安装包内置数据库";
+  dom.clearExitGeoIpDatabaseButton.disabled = !exitGeoIpDatabasePath;
+  dom.exitRegionConcurrency.value = String(exitRegionConcurrency);
+}
+
+function renderLinkRegionSettings() {
+  renderEntryRegionSettings();
+  renderExitRegionSettings();
+}
+
+function updateEntryRegionConcurrency() {
+  const value = dom.entryRegionConcurrency.valueAsNumber;
+  if (!Number.isInteger(value) || value < MIN_REGION_LOOKUP_CONCURRENCY) {
+    dom.entryRegionConcurrency.value = String(entryRegionConcurrency);
+    return;
+  }
+  if (entryRegionConcurrency === value) return;
+  entryRegionConcurrency = value;
+  saveEntryRegionConcurrency();
+  queueDetectedIpRegionLookups();
+  if (!running && outputEntries.length > 0) {
+    regionLookupState = "idle";
+    void enrichOutputRegions();
+  }
+}
+
+function updateExitRegionConcurrency() {
+  const value = dom.exitRegionConcurrency.valueAsNumber;
+  if (!Number.isInteger(value) || value < MIN_REGION_LOOKUP_CONCURRENCY) {
+    dom.exitRegionConcurrency.value = String(exitRegionConcurrency);
+    return;
+  }
+  if (exitRegionConcurrency === value) return;
+  exitRegionConcurrency = value;
+  saveExitRegionConcurrency();
+  queueDetectedIpRegionLookups();
+  renderOutputFilter();
+}
+
+async function chooseEntryGeoIpDatabase() {
   try {
     const selected = await open({
       multiple: false,
@@ -540,31 +638,21 @@ async function chooseGeoIpDatabase() {
       filters: [{ name: "Xray / V2Ray GeoIP 数据库", extensions: ["dat"] }],
     });
     if (typeof selected !== "string") return;
-    geoIpDatabasePath = selected;
-    try {
-      window.localStorage.setItem(GEOIP_DATABASE_PATH_STORAGE_KEY, selected);
-    } catch {
-      // 数据库仍可在当前会话中使用；存储不可用时忽略持久化错误。
+    entryGeoIpDatabasePath = selected;
+    saveEntryGeoIpDatabasePath();
+    renderEntryRegionSettings();
+    queueDetectedIpRegionLookups();
+    if (!running && outputEntries.length > 0) {
+      regionLookupState = "idle";
+      void enrichOutputRegions();
     }
-    renderRegionLookupSettings();
-    if (!running && outputEntries.length > 0) void enrichOutputRegions();
+    renderOutputFilter();
   } catch (error) {
     showToast(failureFrom(error).message || "选择 GeoIP 数据库失败", true);
   }
 }
 
-function clearGeoIpDatabase() {
-  geoIpDatabasePath = "";
-  try {
-    window.localStorage.removeItem(GEOIP_DATABASE_PATH_STORAGE_KEY);
-  } catch {
-    // 当前会话中仍按未选择数据库处理。
-  }
-  renderRegionLookupSettings();
-  if (!running && outputEntries.length > 0) void enrichOutputRegions();
-}
-
-async function chooseDetectedIpGeoIpDatabase() {
+async function chooseExitGeoIpDatabase() {
   try {
     const selected = await open({
       multiple: false,
@@ -572,13 +660,9 @@ async function chooseDetectedIpGeoIpDatabase() {
       filters: [{ name: "Xray / V2Ray GeoIP 数据库", extensions: ["dat"] }],
     });
     if (typeof selected !== "string") return;
-    detectedIpGeoIpDatabasePath = selected;
-    try {
-      window.localStorage.setItem(DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY, selected);
-    } catch {
-      // IP 地区查询仍可在当前会话中使用；存储不可用时忽略持久化错误。
-    }
-    renderDetectedIpRegionSettings();
+    exitGeoIpDatabasePath = selected;
+    saveExitGeoIpDatabasePath();
+    renderExitRegionSettings();
     queueDetectedIpRegionLookups();
     renderOutputFilter();
   } catch (error) {
@@ -586,28 +670,45 @@ async function chooseDetectedIpGeoIpDatabase() {
   }
 }
 
-function clearDetectedIpGeoIpDatabase() {
-  detectedIpGeoIpDatabasePath = "";
-  try {
-    window.localStorage.setItem(DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY, "");
-  } catch {
-    // 当前会话中仍按未选择数据库处理。
+function clearEntryGeoIpDatabase() {
+  entryGeoIpDatabasePath = "";
+  saveEntryGeoIpDatabasePath();
+  renderEntryRegionSettings();
+  queueDetectedIpRegionLookups();
+  if (!running && outputEntries.length > 0) {
+    regionLookupState = "idle";
+    void enrichOutputRegions();
   }
-  renderDetectedIpRegionSettings();
+  renderOutputFilter();
+}
+
+function clearExitGeoIpDatabase() {
+  exitGeoIpDatabasePath = "";
+  saveExitGeoIpDatabasePath();
+  renderExitRegionSettings();
   queueDetectedIpRegionLookups();
   renderOutputFilter();
 }
 
-function migrateDetectedIpRegionSettings() {
+function migrateLinkRegionSettings() {
   try {
-    if (window.localStorage.getItem(DETECTED_IP_REGION_METHODS_STORAGE_KEY) === null) {
-      window.localStorage.setItem(DETECTED_IP_REGION_METHODS_STORAGE_KEY, JSON.stringify(detectedIpRegionMethods));
+    if (window.localStorage.getItem(ENTRY_REGION_METHODS_STORAGE_KEY) === null) {
+      window.localStorage.setItem(ENTRY_REGION_METHODS_STORAGE_KEY, JSON.stringify(entryRegionMethods));
     }
-    if (window.localStorage.getItem(DETECTED_IP_REGION_CONCURRENCY_STORAGE_KEY) === null) {
-      window.localStorage.setItem(DETECTED_IP_REGION_CONCURRENCY_STORAGE_KEY, String(detectedIpRegionConcurrency));
+    if (window.localStorage.getItem(EXIT_REGION_METHODS_STORAGE_KEY) === null) {
+      window.localStorage.setItem(EXIT_REGION_METHODS_STORAGE_KEY, JSON.stringify(exitRegionMethods));
     }
-    if (window.localStorage.getItem(DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY) === null) {
-      window.localStorage.setItem(DETECTED_IP_GEOIP_DATABASE_PATH_STORAGE_KEY, detectedIpGeoIpDatabasePath);
+    if (window.localStorage.getItem(ENTRY_REGION_CONCURRENCY_STORAGE_KEY) === null) {
+      window.localStorage.setItem(ENTRY_REGION_CONCURRENCY_STORAGE_KEY, String(entryRegionConcurrency));
+    }
+    if (window.localStorage.getItem(EXIT_REGION_CONCURRENCY_STORAGE_KEY) === null) {
+      window.localStorage.setItem(EXIT_REGION_CONCURRENCY_STORAGE_KEY, String(exitRegionConcurrency));
+    }
+    if (window.localStorage.getItem(ENTRY_GEOIP_DATABASE_PATH_STORAGE_KEY) === null) {
+      window.localStorage.setItem(ENTRY_GEOIP_DATABASE_PATH_STORAGE_KEY, entryGeoIpDatabasePath);
+    }
+    if (window.localStorage.getItem(EXIT_GEOIP_DATABASE_PATH_STORAGE_KEY) === null) {
+      window.localStorage.setItem(EXIT_GEOIP_DATABASE_PATH_STORAGE_KEY, exitGeoIpDatabasePath);
     }
   } catch {
     // 存储不可用时继续使用启动时读取到的兼容设置。
@@ -656,16 +757,16 @@ const dom = {
   fetchConcurrencyMode: getElement<HTMLSelectElement>("fetch-concurrency-mode"),
   maxRedirects: getElement<HTMLInputElement>("max-redirects"),
   remoteTimeoutSeconds: getElement<HTMLInputElement>("remote-timeout-seconds"),
-  regionLookupMethods: getElement<HTMLDivElement>("region-lookup-methods"),
-  regionLookupConcurrency: getElement<HTMLInputElement>("region-lookup-concurrency"),
-  geoIpDatabaseName: getElement<HTMLSpanElement>("geoip-database-name"),
-  chooseGeoIpDatabaseButton: getElement<HTMLButtonElement>("choose-geoip-database"),
-  clearGeoIpDatabaseButton: getElement<HTMLButtonElement>("clear-geoip-database"),
-  detectedIpRegionMethods: getElement<HTMLDivElement>("detected-ip-region-methods"),
-  detectedIpRegionConcurrency: getElement<HTMLInputElement>("detected-ip-region-concurrency"),
-  detectedIpGeoIpDatabaseName: getElement<HTMLSpanElement>("detected-ip-geoip-database-name"),
-  chooseDetectedIpGeoIpDatabaseButton: getElement<HTMLButtonElement>("choose-detected-ip-geoip-database"),
-  clearDetectedIpGeoIpDatabaseButton: getElement<HTMLButtonElement>("clear-detected-ip-geoip-database"),
+  entryRegionMethods: getElement<HTMLDivElement>("entry-region-methods"),
+  entryRegionConcurrency: getElement<HTMLInputElement>("entry-region-concurrency"),
+  entryGeoIpDatabaseName: getElement<HTMLSpanElement>("entry-geoip-database-name"),
+  chooseEntryGeoIpDatabaseButton: getElement<HTMLButtonElement>("choose-entry-geoip-database"),
+  clearEntryGeoIpDatabaseButton: getElement<HTMLButtonElement>("clear-entry-geoip-database"),
+  exitRegionMethods: getElement<HTMLDivElement>("exit-region-methods"),
+  exitRegionConcurrency: getElement<HTMLInputElement>("exit-region-concurrency"),
+  exitGeoIpDatabaseName: getElement<HTMLSpanElement>("exit-geoip-database-name"),
+  chooseExitGeoIpDatabaseButton: getElement<HTMLButtonElement>("choose-exit-geoip-database"),
+  clearExitGeoIpDatabaseButton: getElement<HTMLButtonElement>("clear-exit-geoip-database"),
   deduplicateOutput: getElement<HTMLInputElement>("deduplicate-output"),
   includeLossyOutput: getElement<HTMLInputElement>("include-lossy-output"),
   skipCertificateVerification: getElement<HTMLInputElement>("skip-certificate-verification"),
@@ -768,16 +869,17 @@ let outputFilterRenderFrame: number | null = null;
 let nodeTestController: NodeTestController | null = null;
 let outputFilter = loadOutputFilter();
 let batchRenameSettings = loadBatchRenameSettings();
-let regionLookupMethods = loadRegionLookupMethods();
-let regionLookupConcurrency = loadRegionLookupConcurrency();
-let geoIpDatabasePath = loadGeoIpDatabasePath();
-let detectedIpRegionMethods = loadDetectedIpRegionMethods();
-let detectedIpRegionConcurrency = loadDetectedIpRegionConcurrency();
-let detectedIpGeoIpDatabasePath = loadDetectedIpGeoIpDatabasePath();
+let entryRegionMethods = loadEntryRegionMethods();
+let entryRegionConcurrency = loadEntryRegionConcurrency();
+let exitRegionMethods = loadExitRegionMethods();
+let exitRegionConcurrency = loadExitRegionConcurrency();
+let entryGeoIpDatabasePath = loadEntryGeoIpDatabasePath();
+let exitGeoIpDatabasePath = loadExitGeoIpDatabasePath();
 let regionLookupState: "idle" | "running" | "done" | "error" = "idle";
 let regionLookupRunId = 0;
 let detectedIpRegionCodes = new Map<string, string | null>();
-const queuedDetectedIpRegions = new Set<string>();
+let detectedIpRegionMethodsByKey = new Map<string, RegionLookupMethod>();
+const queuedDetectedIpRegions = new Map<string, { kind: "entry" | "exit"; address: string }>();
 const pendingDetectedIpRegions = new Set<string>();
 const reportedDetectedIpRegionErrors = new Set<RegionLookupMethod>();
 let detectedIpRegionLookupTask: Promise<void> | null = null;
@@ -1508,35 +1610,6 @@ function shouldIncludeLossyOutput(): boolean {
   return dom.includeLossyOutput.checked;
 }
 
-function updateRegionLookupConcurrency() {
-  const value = dom.regionLookupConcurrency.valueAsNumber;
-  if (!Number.isInteger(value)
-    || value < MIN_REGION_LOOKUP_CONCURRENCY) {
-    dom.regionLookupConcurrency.value = String(regionLookupConcurrency);
-    return;
-  }
-  if (regionLookupConcurrency === value) return;
-  regionLookupConcurrency = value;
-  saveRegionLookupConcurrency();
-  if (!running && outputEntries.length > 0 && regionLookupState !== "running") {
-    regionLookupState = "idle";
-    void enrichOutputRegions();
-  }
-}
-
-function updateDetectedIpRegionConcurrency() {
-  const value = dom.detectedIpRegionConcurrency.valueAsNumber;
-  if (!Number.isInteger(value) || value < MIN_REGION_LOOKUP_CONCURRENCY) {
-    dom.detectedIpRegionConcurrency.value = String(detectedIpRegionConcurrency);
-    return;
-  }
-  if (detectedIpRegionConcurrency === value) return;
-  detectedIpRegionConcurrency = value;
-  saveDetectedIpRegionConcurrency();
-  queueDetectedIpRegionLookups();
-  renderOutputFilter();
-}
-
 function refreshForOutputSettingChange() {
   if (!running && activeSourceDocuments.length > 0) void refreshConversion();
 }
@@ -1561,7 +1634,8 @@ function setBusy(busy: boolean) {
   dom.maxRedirects.disabled = busy;
   dom.remoteTimeoutSeconds.disabled = busy;
   dom.remoteSubscriptionFetchEnabled.disabled = busy;
-  dom.regionLookupConcurrency.disabled = busy || regionLookupState === "running";
+  dom.entryRegionConcurrency.disabled = busy || regionLookupState === "running";
+  dom.exitRegionConcurrency.disabled = busy || regionLookupState === "running";
   dom.deduplicateOutput.disabled = busy;
   dom.includeLossyOutput.disabled = busy;
   dom.skipCertificateVerification.disabled = busy;
@@ -1948,6 +2022,10 @@ function detectionIps(result: NodeTestResponse | undefined, kind: "entry" | "exi
   return [...new Set(addresses.map(address => address.trim()).filter(Boolean))];
 }
 
+function detectedIpRegionKey(kind: "entry" | "exit", address: string): string {
+  return `${kind}:${address}`;
+}
+
 function isLinkDetectionEnabled(kind: "entry" | "exit", category: "ip" | "region" | "type"): boolean {
   const settings = nodeTestController?.getLinkDetectionSettings();
   if (!settings) return true;
@@ -1981,19 +2059,49 @@ function detectionRegionCell(entry: CategorizedOutput, kind: "entry" | "exit"): 
     return textCell(state.state === "done" ? "\u672a\u77e5" : "\u2014", "output-table-text-cell", state.title);
   }
 
-  const pending = addresses.some(address => pendingDetectedIpRegions.has(address));
-  const regionNames = [...new Set(addresses
-    .map(address => detectedIpRegionCodes.get(address))
-    .filter((code): code is string => Boolean(code) && code !== UNKNOWN_REGION_CODE)
-    .map(countryNameForCode))];
+  const methods = kind === "entry" ? entryRegionMethods : exitRegionMethods;
+  const ipRegions = addresses.map(address => {
+    const key = detectedIpRegionKey(kind, address);
+    const method = detectedIpRegionMethodsByKey.get(key);
+    return {
+      code: detectedIpRegionCodes.get(key),
+      priority: method ? methods.indexOf(method) : -1,
+      pending: pendingDetectedIpRegions.has(key),
+    };
+  });
+  const nodeNameCode = kind === "entry" && methods.includes("NODE_NAME")
+    ? countryCodeFromNodeName(entry.originalName || entry.name)
+    : null;
+  const nodeNamePriority = methods.indexOf("NODE_NAME");
+  const firstIpPriority = ipRegions
+    .filter(region => region.code && region.priority >= 0)
+    .reduce<number | null>((priority, region) => priority === null ? region.priority : Math.min(priority, region.priority), null);
+  const pending = ipRegions.some(region => region.pending);
+  const firstSelectedIpPriority = methods
+    .filter(method => method !== "NODE_NAME")
+    .map(method => methods.indexOf(method))
+    .reduce<number | null>((priority, value) => priority === null ? value : Math.min(priority, value), null);
+  const nodeNameBeforeIp = nodeNamePriority >= 0
+    && (firstSelectedIpPriority === null || nodeNamePriority < firstSelectedIpPriority);
+  const useNodeName = Boolean(nodeNameCode)
+    && (nodeNameBeforeIp || (!pending && (firstIpPriority === null || nodeNamePriority < firstIpPriority)));
+  const regionNames = useNodeName
+    ? [countryNameForCode(nodeNameCode!)]
+    : [...new Set(ipRegions
+      .map(region => region.code)
+      .filter((code): code is string => Boolean(code) && code !== UNKNOWN_REGION_CODE)
+      .map(countryNameForCode))];
   const label = pending
     ? regionNames.length > 0 ? `${regionNames.join("\u3001")}（\u67e5\u8be2\u4e2d）` : "\u67e5\u8be2\u4e2d"
     : regionNames.join("\u3001") || "\u672a\u77e5";
-  const title = addresses.map(address => {
-    const code = detectedIpRegionCodes.get(address);
-    const region = pendingDetectedIpRegions.has(address) ? "\u67e5\u8be2\u4e2d" : code ? countryNameForCode(code) : "\u672a\u77e5";
-    return `${address}\uff1a${region}`;
-  }).join("\n");
+  const title = useNodeName
+    ? `节点名称：${countryNameForCode(nodeNameCode!)}`
+    : addresses.map(address => {
+      const key = detectedIpRegionKey(kind, address);
+      const code = detectedIpRegionCodes.get(key);
+      const region = pendingDetectedIpRegions.has(key) ? "\u67e5\u8be2\u4e2d" : code ? countryNameForCode(code) : "\u672a\u77e5";
+      return `${address}\uff1a${region}`;
+    }).join("\n");
   return textCell(label, "output-table-text-cell", title);
 }
 
@@ -2508,7 +2616,8 @@ function renderOutputFilter(updateSummary = true) {
     : `${outputUris.length} 个节点`;
   dom.outputOverview.textContent = `${countText}${regionStatus}`;
   updateOutputFilterSettingsSummaries();
-  dom.regionLookupConcurrency.disabled = running || regionLookupState === "running";
+  dom.entryRegionConcurrency.disabled = running || regionLookupState === "running";
+  dom.exitRegionConcurrency.disabled = running || regionLookupState === "running";
   dom.copyButton.disabled = uris.length === 0;
   dom.exportTableButton.disabled = uris.length === 0 || outputTableExportInProgress;
   dom.exportTablePngButton.disabled = uris.length === 0 || outputTableExportInProgress;
@@ -2526,13 +2635,13 @@ async function enrichOutputRegions() {
     return;
   }
 
-  regionLookupState = regionLookupMethods.length > 0 ? "running" : "done";
+  regionLookupState = entryRegionMethods.length > 0 ? "running" : "done";
   for (const entry of entries) entry.countryCode = null;
   renderOutputFilter(outputFilter.countriesEnabled);
 
   const unresolved = new Map(entries.map(entry => [entry.id, entry]));
   let lookupFailed = false;
-  for (const method of regionLookupMethods) {
+  for (const method of entryRegionMethods) {
     if (runId !== regionLookupRunId) return;
     if (unresolved.size === 0) break;
 
@@ -2552,8 +2661,8 @@ async function enrichOutputRegions() {
       const results = await invoke<Array<{ id: string; countryCode: string | null }>>("lookup_node_regions", {
         nodes: pendingEntries.map(({ id, server }) => ({ id, server })),
         lookupMethod: method,
-        geoIpDatabasePath: method === "LOCAL_GEOIP" ? geoIpDatabasePath : null,
-        concurrency: regionLookupConcurrency,
+        geoIpDatabasePath: method === "LOCAL_GEOIP" ? entryGeoIpDatabasePath : null,
+        concurrency: entryRegionConcurrency,
       });
       if (runId !== regionLookupRunId) return;
       const resultById = new Map(results.map(result => [result.id, normalizeRegionCode(result.countryCode)]));
@@ -2574,48 +2683,60 @@ async function enrichOutputRegions() {
   renderOutputFilter(outputFilter.countriesEnabled);
 }
 
-// 使用节点检测中的地区查询设置批量查询 IP，并按 IP 缓存入口和出口的地区结果。
-async function lookupQueuedDetectedIpRegions(
-  runId: number,
-  methods: Array<Exclude<RegionLookupMethod, "NODE_NAME">>,
-) {
+// 按入口和出口各自启用的查询来源批量查询 IP 地区。
+async function lookupQueuedDetectedIpRegions(runId: number) {
   while (runId === detectedIpRegionLookupRunId && queuedDetectedIpRegions.size > 0) {
-    const addresses = [...queuedDetectedIpRegions].slice(0, 128);
-    for (const address of addresses) queuedDetectedIpRegions.delete(address);
-    const unresolved = new Set(addresses);
+    const jobs = [...queuedDetectedIpRegions.values()].slice(0, 128);
+    for (const job of jobs) queuedDetectedIpRegions.delete(detectedIpRegionKey(job.kind, job.address));
 
-    for (const method of methods) {
-      if (runId !== detectedIpRegionLookupRunId) return;
-      if (unresolved.size === 0) break;
-      try {
-        const results = await invoke<Array<{ id: string; countryCode: string | null }>>("lookup_node_regions", {
-          nodes: [...unresolved].map(address => ({ id: address, server: address })),
-          lookupMethod: method,
-          geoIpDatabasePath: method === "LOCAL_GEOIP" ? detectedIpGeoIpDatabasePath : null,
-          concurrency: detectedIpRegionConcurrency,
-        });
+    for (const kind of ["entry", "exit"] as const) {
+      const addresses = [...new Set(jobs.filter(job => job.kind === kind).map(job => job.address))];
+      if (addresses.length === 0) continue;
+      const selectedMethods = kind === "entry" ? entryRegionMethods : exitRegionMethods;
+      const methods = selectedMethods.filter(
+        (method): method is Exclude<RegionLookupMethod, "NODE_NAME"> => method !== "NODE_NAME",
+      );
+      const unresolved = new Set(addresses);
+
+      for (const method of methods) {
         if (runId !== detectedIpRegionLookupRunId) return;
-        const resultById = new Map(results.map(result => [result.id, normalizeRegionCode(result.countryCode)]));
-        for (const address of unresolved) {
-          const countryCode = resultById.get(address);
-          if (!countryCode) continue;
-          detectedIpRegionCodes.set(address, countryCode);
-          unresolved.delete(address);
-        }
-      } catch (error) {
-        if (runId !== detectedIpRegionLookupRunId) return;
-        if (!reportedDetectedIpRegionErrors.has(method)) {
-          reportedDetectedIpRegionErrors.add(method);
-          const methodLabel = method === "LOCAL_GEOIP" ? "本地 GeoIP" : "远程地区 API";
-          appendLog(`${methodLabel}查询入口/出口 IP 地区失败：${failureFrom(error).message}`, true);
+        if (unresolved.size === 0) break;
+        try {
+          const results = await invoke<Array<{ id: string; countryCode: string | null }>>("lookup_node_regions", {
+            nodes: [...unresolved].map(address => ({ id: address, server: address })),
+            lookupMethod: method,
+            geoIpDatabasePath: method === "LOCAL_GEOIP"
+              ? kind === "entry" ? entryGeoIpDatabasePath : exitGeoIpDatabasePath
+              : null,
+            concurrency: kind === "entry" ? entryRegionConcurrency : exitRegionConcurrency,
+          });
+          if (runId !== detectedIpRegionLookupRunId) return;
+          const resultById = new Map(results.map(result => [result.id, normalizeRegionCode(result.countryCode)]));
+          for (const address of unresolved) {
+            const countryCode = resultById.get(address);
+            if (!countryCode) continue;
+            const key = detectedIpRegionKey(kind, address);
+            detectedIpRegionCodes.set(key, countryCode);
+            detectedIpRegionMethodsByKey.set(key, method);
+            unresolved.delete(address);
+          }
+        } catch (error) {
+          if (runId !== detectedIpRegionLookupRunId) return;
+          if (!reportedDetectedIpRegionErrors.has(method)) {
+            reportedDetectedIpRegionErrors.add(method);
+            const methodLabel = method === "LOCAL_GEOIP" ? "本地 GeoIP" : "远程地区 API";
+            const sideLabel = kind === "entry" ? "入口" : "出口";
+            appendLog(`${methodLabel}查询${sideLabel} IP 地区失败：${failureFrom(error).message}`, true);
+          }
         }
       }
-    }
 
-    if (runId !== detectedIpRegionLookupRunId) return;
-    for (const address of addresses) {
-      if (!detectedIpRegionCodes.has(address)) detectedIpRegionCodes.set(address, null);
-      pendingDetectedIpRegions.delete(address);
+      if (runId !== detectedIpRegionLookupRunId) return;
+      for (const address of addresses) {
+        const key = detectedIpRegionKey(kind, address);
+        if (!detectedIpRegionCodes.has(key)) detectedIpRegionCodes.set(key, null);
+        pendingDetectedIpRegions.delete(key);
+      }
     }
     scheduleOutputFilterRender();
   }
@@ -2626,13 +2747,8 @@ function scheduleDetectedIpRegionLookup() {
   detectedIpRegionLookupTimer = window.setTimeout(() => {
     detectedIpRegionLookupTimer = null;
     if (queuedDetectedIpRegions.size === 0 || detectedIpRegionLookupTask) return;
-    const methods = detectedIpRegionMethods.filter(
-      (method): method is Exclude<RegionLookupMethod, "NODE_NAME"> => method !== "NODE_NAME",
-    );
-    if (methods.length === 0) return;
-
     const runId = detectedIpRegionLookupRunId;
-    detectedIpRegionLookupTask = lookupQueuedDetectedIpRegions(runId, methods)
+    detectedIpRegionLookupTask = lookupQueuedDetectedIpRegions(runId)
       .catch(error => appendLog(`入口/出口 IP 地区查询失败：${failureFrom(error).message}`, true))
       .finally(() => {
         detectedIpRegionLookupTask = null;
@@ -2645,13 +2761,15 @@ function queueDetectedIpRegionLookups(changedEntryId?: string, changedKind?: Nod
   const linkDetectionSettings = nodeTestController?.getLinkDetectionSettings();
   const entryRegionEnabled = linkDetectionSettings?.entryRegionEnabled ?? true;
   const exitRegionEnabled = linkDetectionSettings?.exitRegionEnabled ?? true;
-  const methods = detectedIpRegionMethods.filter(
-    (method): method is Exclude<RegionLookupMethod, "NODE_NAME"> => method !== "NODE_NAME",
-  );
+  const entryIpMethods = entryRegionMethods.filter(method => method !== "NODE_NAME");
+  const exitIpMethods = exitRegionMethods;
   const signature = JSON.stringify([
-    methods,
-    detectedIpRegionConcurrency,
-    methods.includes("LOCAL_GEOIP") ? detectedIpGeoIpDatabasePath : "",
+    entryRegionMethods,
+    entryRegionConcurrency,
+    exitRegionMethods,
+    exitRegionConcurrency,
+    entryIpMethods.includes("LOCAL_GEOIP") ? entryGeoIpDatabasePath : "",
+    exitIpMethods.includes("LOCAL_GEOIP") ? exitGeoIpDatabasePath : "",
     entryRegionEnabled,
     exitRegionEnabled,
   ]);
@@ -2659,11 +2777,12 @@ function queueDetectedIpRegionLookups(changedEntryId?: string, changedKind?: Nod
     detectedIpRegionLookupSignature = signature;
     detectedIpRegionLookupRunId += 1;
     detectedIpRegionCodes.clear();
+    detectedIpRegionMethodsByKey.clear();
     queuedDetectedIpRegions.clear();
     pendingDetectedIpRegions.clear();
     reportedDetectedIpRegionErrors.clear();
   }
-  if (methods.length === 0 || !nodeTestController) return;
+  if ((entryIpMethods.length === 0 && exitIpMethods.length === 0) || !nodeTestController) return;
 
   const candidates: Array<{ entryId: string; kind: "entry" | "exit" }> = [];
   if (changedEntryId && changedKind === "entry" && entryRegionEnabled) {
@@ -2680,10 +2799,22 @@ function queueDetectedIpRegionLookups(changedEntryId?: string, changedKind?: Nod
   for (const { entryId, kind } of candidates) {
     const state = nodeTestController.getResult(entryId, kind);
     if (state?.state !== "done" || !state.result?.success) continue;
+    const methods = kind === "entry" ? entryRegionMethods : exitRegionMethods;
+    const ipMethods = kind === "entry" ? entryIpMethods : exitIpMethods;
+    if (ipMethods.length === 0) continue;
+    if (kind === "entry") {
+      const nodeNameCode = methods.includes("NODE_NAME")
+        ? countryCodeFromNodeName(outputEntries.find(entry => entry.id === entryId)?.originalName ?? "")
+        : null;
+      const nodeNamePriority = methods.indexOf("NODE_NAME");
+      const firstIpMethodPriority = Math.min(...ipMethods.map(method => methods.indexOf(method)));
+      if (nodeNameCode && nodeNamePriority >= 0 && nodeNamePriority < firstIpMethodPriority) continue;
+    }
     for (const address of detectionIps(state.result, kind)) {
-      if (detectedIpRegionCodes.has(address) || pendingDetectedIpRegions.has(address)) continue;
-      queuedDetectedIpRegions.add(address);
-      pendingDetectedIpRegions.add(address);
+      const key = detectedIpRegionKey(kind, address);
+      if (detectedIpRegionCodes.has(key) || pendingDetectedIpRegions.has(key)) continue;
+      queuedDetectedIpRegions.set(key, { kind, address });
+      pendingDetectedIpRegions.add(key);
     }
   }
 
@@ -3353,10 +3484,12 @@ function bindEvents() {
   });
   dom.outputColumnAutoFitButton.addEventListener("click", autoFitOutputColumnWidths);
   dom.outputFilterApplyButton.addEventListener("click", applyOutputFilter);
-  dom.regionLookupConcurrency.value = String(regionLookupConcurrency);
-  dom.regionLookupConcurrency.addEventListener("change", updateRegionLookupConcurrency);
-  dom.detectedIpRegionConcurrency.value = String(detectedIpRegionConcurrency);
-  dom.detectedIpRegionConcurrency.addEventListener("change", updateDetectedIpRegionConcurrency);
+  dom.entryRegionConcurrency.addEventListener("change", updateEntryRegionConcurrency);
+  dom.exitRegionConcurrency.addEventListener("change", updateExitRegionConcurrency);
+  dom.chooseEntryGeoIpDatabaseButton.addEventListener("click", () => void chooseEntryGeoIpDatabase());
+  dom.chooseExitGeoIpDatabaseButton.addEventListener("click", () => void chooseExitGeoIpDatabase());
+  dom.clearEntryGeoIpDatabaseButton.addEventListener("click", clearEntryGeoIpDatabase);
+  dom.clearExitGeoIpDatabaseButton.addEventListener("click", clearExitGeoIpDatabase);
   dom.outputFilterProtocolEnabled.addEventListener("change", () => {
     draftFilterProtocolsEnabled = dom.outputFilterProtocolEnabled.checked;
     updateOutputFilterSettingsSummaries();
@@ -3365,10 +3498,6 @@ function bindEvents() {
     draftFilterCountriesEnabled = dom.outputFilterRegionEnabled.checked;
     updateOutputFilterSettingsSummaries();
   });
-  dom.chooseGeoIpDatabaseButton.addEventListener("click", () => void chooseGeoIpDatabase());
-  dom.clearGeoIpDatabaseButton.addEventListener("click", clearGeoIpDatabase);
-  dom.chooseDetectedIpGeoIpDatabaseButton.addEventListener("click", () => void chooseDetectedIpGeoIpDatabase());
-  dom.clearDetectedIpGeoIpDatabaseButton.addEventListener("click", clearDetectedIpGeoIpDatabase);
   dom.copyButton.addEventListener("click", () => void copyFilteredOutput());
   dom.exportTableButton.addEventListener("click", () => void saveOutputTableAsExcel());
   dom.exportTablePngButton.addEventListener("click", () => void saveOutputTableAsPng());
@@ -3415,13 +3544,12 @@ function bindEvents() {
     onTestStarted: scheduleOutputFilterRender,
     onTestProgress: updateNodeTestProgress,
   });
-  renderRegionLookupSettings();
-  renderDetectedIpRegionSettings();
+  renderLinkRegionSettings();
   renderOutputFilter();
   bindPanelResizers();
   bindOutputTableColumnResizers();
   applyPanelRatios();
 }
 
-migrateDetectedIpRegionSettings();
+migrateLinkRegionSettings();
 bindEvents();
