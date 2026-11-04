@@ -1,6 +1,6 @@
 [package]
 name = "all2uri"
-version = "0.1.0"
+version = "0.2.0"
 description = "all2uri"
 authors = ["all2uri"]
 edition = "2024"
