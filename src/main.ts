@@ -844,8 +844,6 @@ function selectSettingsCategory(category: string) {
   for (const button of dom.settingsSubnavButtons) button.removeAttribute("aria-current");
   if (firstButton) {
     firstButton.setAttribute("aria-current", "location");
-    const target = document.getElementById(firstButton.dataset.settingsAnchor ?? "");
-    if (target instanceof HTMLDetailsElement) target.open = true;
     showSettingsContent(category, firstButton);
     firstButton.focus({ preventScroll: true });
   }
@@ -899,11 +897,6 @@ function navigateSettingsAnchor(button: HTMLButtonElement) {
 
   const category = button.closest<HTMLElement>("[data-settings-subnav]")?.dataset.settingsSubnav;
   if (category) showSettingsContent(category, button);
-  let parentDetails = target.closest("details");
-  while (parentDetails) {
-    parentDetails.open = true;
-    parentDetails = parentDetails.parentElement?.closest("details") ?? null;
-  }
 }
 
 interface ResizeState {

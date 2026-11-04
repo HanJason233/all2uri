@@ -1931,67 +1931,57 @@ body.resizing-output-columns * {
   border-top: 1px solid var(--border);
 }
 
-.test-settings-group summary {
+.settings-test-heading {
   display: flex;
-  min-height: 48px;
+  min-height: 50px;
   align-items: center;
-  padding: 0 4px;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-test-subheading {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.link-detection-group > .settings-test-subsection {
+  margin: 0;
+  padding: 0 0 14px;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.link-detection-category {
+  margin: 0;
+  padding: 0 0 8px;
+  border-top: 0;
+}
+
+.link-detection-category + .link-detection-category {
+  border-top: 1px solid var(--border);
+}
+
+.link-detection-category-heading {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  margin: 0;
+  gap: 10px;
   color: var(--text);
   font-size: 14px;
   font-weight: 600;
-  border-radius: 3px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-
-.test-settings-group summary::-webkit-details-marker {
-  display: none;
-}
-
-.test-settings-group summary::before {
-  width: 6px;
-  height: 6px;
-  margin-right: 10px;
-  content: "";
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 120ms ease;
-}
-
-.test-settings-group summary:hover {
-  background: #f7f7f7;
-}
-
-.test-settings-group[open] {
-  padding-bottom: 8px;
-}
-
-.test-settings-group[open] summary {
-  margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
-  border-radius: 3px 3px 0 0;
-}
-
-.test-settings-group[open] summary::before {
-  transform: rotate(45deg);
-}
-
-.link-detection-group > .test-settings-group {
-  margin-left: 12px;
-}
-
-.link-detection-group > .test-settings-group > summary {
-  font-size: 13px;
-}
-
-.link-detection-group .test-settings-group .test-settings-group {
-  margin-left: 10px;
-}
-
-.link-detection-category > summary {
-  gap: 10px;
 }
 
 .link-detection-category-name {
@@ -2043,7 +2033,7 @@ body.resizing-output-columns * {
   opacity: 0.55;
 }
 
-.link-detection-category.is-detection-disabled > :not(summary) {
+.link-detection-category.is-detection-disabled > :not(.link-detection-category-heading) {
   opacity: 0.5;
 }
 
@@ -2493,13 +2483,9 @@ body.resizing-output-columns * {
   border-color: #e6e6e6;
 }
 
-.test-settings-group {
+.test-settings-group,
+.link-detection-category {
   scroll-margin-top: 24px;
-}
-
-.test-settings-group summary {
-  min-height: 50px;
-  padding: 0;
 }
 
 .settings-control {
