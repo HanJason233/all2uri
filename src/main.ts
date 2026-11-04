@@ -520,7 +520,7 @@ const dom = {
   batchRenamePeakSpeed: getElement<HTMLInputElement>("batch-rename-peak-speed"),
   batchRenameUnlockSummary: getElement<HTMLInputElement>("batch-rename-unlock-summary"),
   batchRenameKeepOriginalName: getElement<HTMLInputElement>("batch-rename-keep-original-name"),
-  outputColumnResetButton: getElement<HTMLButtonElement>("output-column-reset-button"),
+  outputColumnAutoFitButton: getElement<HTMLButtonElement>("output-column-auto-fit-button"),
   outputFilterCount: getElement<HTMLSpanElement>("output-filter-count"),
   outputTableWrap: getElement<HTMLDivElement>("output-table-wrap"),
   outputTable: getElement<HTMLTableElement>("output-table"),
@@ -710,8 +710,69 @@ function resizeOutputColumn(columnKey: string, width: number) {
   applyOutputColumnWidths();
 }
 
-function resetOutputColumnWidths() {
-  for (const column of renderedOutputColumns) outputColumnWidths[column.key] = column.width;
+// 参考 v2rayN 的 Auto 列宽行为，用隐藏表格测量当前筛选结果并保存自适应宽度。
+function autoFitOutputColumnWidths() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "output-table-wrap output-table-autofit-staging";
+  wrapper.setAttribute("aria-hidden", "true");
+  wrapper.style.position = "fixed";
+  wrapper.style.left = "-100000px";
+  wrapper.style.top = "0";
+  wrapper.style.width = "max-content";
+  wrapper.style.height = "max-content";
+  wrapper.style.maxWidth = "none";
+  wrapper.style.maxHeight = "none";
+  wrapper.style.flex = "none";
+  wrapper.style.overflow = "visible";
+  wrapper.style.visibility = "hidden";
+  wrapper.style.pointerEvents = "none";
+
+  const table = dom.outputTable.cloneNode(true) as HTMLTableElement;
+  table.style.width = "max-content";
+  table.style.minWidth = "0";
+  table.style.maxWidth = "none";
+  table.style.tableLayout = "auto";
+  for (const column of table.querySelectorAll<HTMLTableColElement>("col[data-column-key]")) {
+    column.style.removeProperty("width");
+  }
+
+  const body = table.tBodies[0];
+  if (!body) return;
+  const rows = document.createDocumentFragment();
+  for (let index = 0; index < filteredOutputEntries.length; index += 1) {
+    rows.append(renderOutputTableRow(filteredOutputEntries[index]!, index));
+  }
+  body.replaceChildren(rows);
+  table.querySelectorAll(".output-table-filler").forEach(element => element.remove());
+  table.querySelectorAll<HTMLTableCellElement>("th, td").forEach(cell => {
+    cell.style.overflow = "visible";
+  });
+  table.querySelectorAll<HTMLElement>(".output-table-primary, .output-table-truncate").forEach(element => {
+    element.style.width = "max-content";
+    element.style.maxWidth = "none";
+    element.style.overflow = "visible";
+    element.style.textOverflow = "clip";
+  });
+  wrapper.append(table);
+  document.body.append(wrapper);
+
+  try {
+    const columns = Array.from(table.querySelectorAll<HTMLTableColElement>("col[data-column-key]"));
+    const headers = Array.from(table.tHead?.rows[0]?.cells ?? []);
+    for (const [index, column] of columns.entries()) {
+      const key = column.dataset.columnKey;
+      if (!key) continue;
+      const measuredWidth = headers[index]?.getBoundingClientRect().width ?? 0;
+      const fallbackWidth = Number(column.dataset.defaultWidth) || OUTPUT_COLUMN_MIN_WIDTH;
+      outputColumnWidths[key] = Math.max(
+        OUTPUT_COLUMN_MIN_WIDTH,
+        Math.ceil(measuredWidth > 0 ? measuredWidth : fallbackWidth),
+      );
+    }
+  } finally {
+    wrapper.remove();
+  }
+
   applyOutputColumnWidths();
   saveOutputColumnWidths();
 }
@@ -2865,7 +2926,7 @@ function bindEvents() {
     syncFetchConcurrencyInput();
     if (!dom.validation.hidden) setValidation();
   });
-  dom.outputColumnResetButton.addEventListener("click", resetOutputColumnWidths);
+  dom.outputColumnAutoFitButton.addEventListener("click", autoFitOutputColumnWidths);
   dom.outputFilterApplyButton.addEventListener("click", applyOutputFilter);
   dom.regionLookupConcurrency.value = String(regionLookupConcurrency);
   dom.regionLookupConcurrency.addEventListener("change", updateRegionLookupConcurrency);
