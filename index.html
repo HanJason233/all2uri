@@ -138,28 +138,77 @@
       <div class="output-rule-dialog-content settings-dialog-content">
         <button class="output-rule-dialog-close settings-dialog-close" id="settings-dialog-close" type="button" aria-label="关闭设置">×</button>
         <div class="settings-workspace">
-          <nav class="settings-nav" id="settings-nav" role="tablist" aria-label="设置分类" aria-orientation="vertical">
-            <div class="settings-nav-heading" role="presentation">设置</div>
-            <button class="settings-nav-button" id="settings-tab-input" type="button" role="tab" aria-controls="settings-pane-input" aria-selected="true" data-settings-tab="input" tabindex="0">
-              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16v2L4 8V6zm2-4h12v2H6V2zm14 8H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-8c0-1.1-.9-2-2-2zm0 10H4v-8h16v8zm-10-7.27v6.53L16 16l-6-3.27z" /></svg>输入</span>
-            </button>
-            <button class="settings-nav-button" id="settings-tab-output" type="button" role="tab" aria-controls="settings-pane-output" aria-selected="false" data-settings-tab="output" tabindex="-1">
-              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 9h3v10H5V9zm5-4h3v14h-3V5zm5 7h3v7h-3v-7zm5-5h3v12h-3V7z" /></svg>输出</span>
-            </button>
-            <button class="settings-nav-button" id="settings-tab-list" type="button" role="tab" aria-controls="settings-pane-list" aria-selected="false" data-settings-tab="list" tabindex="-1">
-              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h2v2H4V5zm4 0h12v2H8V5zM4 11h2v2H4v-2zm4 0h12v2H8v-2zm-4 6h2v2H4v-2zm4 0h12v2H8v-2z" /></svg>列表</span>
-            </button>
-            <button class="settings-nav-button" id="settings-tab-detection" type="button" role="tab" aria-controls="settings-pane-detection" aria-selected="false" data-settings-tab="detection" tabindex="-1">
-              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2 4 5v6c0 5.2 3.4 9.8 8 11 4.6-1.2 8-5.8 8-11V5l-8-3zm0 3.2 5 1.9V11c0 3.7-2.1 7.1-5 8.3-2.9-1.2-5-4.6-5-8.3V7.1l5-1.9zm-1 9.4-2-2-1.4 1.4L11 17l5.4-5.4L15 10.2l-4 4.4z" /></svg>节点检测</span>
-            </button>
-          </nav>
+          <section class="settings-home" id="settings-home" aria-label="设置首页">
+            <header class="settings-home-header">
+              <h1>设置</h1>
+              <label class="settings-search-wrap settings-home-search-wrap">
+                <span class="visually-hidden">查找设置分类</span>
+                <input class="settings-search" id="settings-home-search" type="search" placeholder="查找设置" autocomplete="off" />
+              </label>
+            </header>
+            <div class="settings-home-grid" role="group" aria-label="设置分类">
+              <button class="settings-home-card" id="settings-tab-input" type="button" data-settings-tab="input" aria-pressed="false">
+                <svg class="settings-home-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16v2L4 8V6zm2-4h12v2H6V2zm14 8H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-8c0-1.1-.9-2-2-2zm0 10H4v-8h16v8zm-10-7.27v6.53L16 16l-6-3.27z" /></svg>
+                <span class="settings-home-card-copy"><strong>输入</strong><span>订阅拉取、请求参数和连接设置</span></span>
+              </button>
+              <button class="settings-home-card" id="settings-tab-output" type="button" data-settings-tab="output" aria-pressed="false">
+                <svg class="settings-home-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 9h3v10H5V9zm5-4h3v14h-3V5zm5 7h3v7h-3v-7zm5-5h3v12h-3V7z" /></svg>
+                <span class="settings-home-card-copy"><strong>输出</strong><span>结果筛选、批量重命名和导出</span></span>
+              </button>
+              <button class="settings-home-card" id="settings-tab-list" type="button" data-settings-tab="list" aria-pressed="false">
+                <svg class="settings-home-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h2v2H4V5zm4 0h12v2H8V5zM4 11h2v2H4v-2zm4 0h12v2H8v-2zm-4 6h2v2H4v-2zm4 0h12v2H8v-2z" /></svg>
+                <span class="settings-home-card-copy"><strong>列表</strong><span>自定义结果列表中的列和显示方式</span></span>
+              </button>
+              <button class="settings-home-card" id="settings-tab-detection" type="button" data-settings-tab="detection" aria-pressed="false">
+                <svg class="settings-home-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2 4 5v6c0 5.2 3.4 9.8 8 11 4.6-1.2 8-5.8 8-11V5l-8-3zm0 3.2 5 1.9V11c0 3.7-2.1 7.1-5 8.3-2.9-1.2-5-4.6-5-8.3V7.1l5-1.9zm-1 9.4-2-2-1.4 1.4L11 17l5.4-5.4L15 10.2l-4 4.4z" /></svg>
+                <span class="settings-home-card-copy"><strong>节点检测</strong><span>延迟、速度、链路、IP 和解锁检测</span></span>
+              </button>
+            </div>
+            <p class="settings-home-empty" id="settings-home-empty" hidden>没有匹配的设置分类</p>
+          </section>
+
+          <div class="settings-detail" id="settings-detail" hidden>
+            <aside class="settings-sidebar">
+              <button class="settings-back-home" id="settings-back-home" type="button">返回设置</button>
+              <label class="settings-search-wrap settings-detail-search-wrap">
+                <span class="visually-hidden">查找当前分类设置</span>
+                <input class="settings-search" id="settings-detail-search" type="search" placeholder="查找设置" autocomplete="off" />
+              </label>
+              <nav class="settings-nav" id="settings-nav" aria-label="设置子菜单">
+                <section class="settings-subnav" data-settings-subnav="input" hidden>
+                  <h2>输入</h2>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-request-title">订阅请求</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-security-title">连接</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-limits-title">请求限制</button>
+                </section>
+                <section class="settings-subnav" data-settings-subnav="output" hidden>
+                  <h2>输出</h2>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-output-title">输出结果</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-batch-rename-title">批量重命名</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-output-filter-title">当前结果筛选</button>
+                </section>
+                <section class="settings-subnav" data-settings-subnav="list" hidden>
+                  <h2>列表</h2>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-list-columns-title">列显示</button>
+                </section>
+                <section class="settings-subnav" data-settings-subnav="detection" hidden>
+                  <h2>节点检测</h2>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-one-click-settings">一键测试项目</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-tcping-settings">TCPing</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-url204-settings">204 URL</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-bandwidth-settings">传输质量测速</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-link-settings">链路检测</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-unlock-settings">流媒体与 AI 解锁</button>
+                </section>
+              </nav>
+            </aside>
           <div class="settings-content" id="settings-content">
-            <section class="settings-pane" id="settings-pane-input" role="tabpanel" aria-labelledby="settings-tab-input" data-settings-pane="input" tabindex="0">
+            <section class="settings-pane" id="settings-pane-input" role="region" aria-labelledby="settings-pane-title-input" data-settings-pane="input" tabindex="0">
               <div class="settings-pane-heading">
-                <h2>输入</h2>
+                <h2 id="settings-pane-title-input">输入</h2>
               </div>
               <div class="settings-pane-sections settings-pane-grid">
-                <section class="settings-section" aria-labelledby="settings-request-title">
+                <section class="settings-section" aria-labelledby="settings-request-title" data-settings-content="settings-request-title">
                   <h3 id="settings-request-title">订阅请求</h3>
                   <label class="settings-row">
                     <span>远程订阅拉取</span>
@@ -187,7 +236,7 @@
                   />
                 </section>
 
-                <section class="settings-section" aria-labelledby="settings-security-title">
+                <section class="settings-section" aria-labelledby="settings-security-title" data-settings-content="settings-security-title">
                   <h3 id="settings-security-title">连接</h3>
                   <label class="settings-row">
                     <span>允许本机及局域网</span>
@@ -199,7 +248,7 @@
                   </label>
                 </section>
 
-                <section class="settings-section settings-section-wide" aria-labelledby="settings-limits-title">
+                <section class="settings-section settings-section-wide" aria-labelledby="settings-limits-title" data-settings-content="settings-limits-title">
                   <h3 id="settings-limits-title">请求限制</h3>
                   <label class="settings-row">
                     <span>最大重定向</span>
@@ -229,12 +278,12 @@
 
               </div>
             </section>
-            <section class="settings-pane" id="settings-pane-output" role="tabpanel" aria-labelledby="settings-tab-output" data-settings-pane="output" tabindex="0" hidden>
+            <section class="settings-pane" id="settings-pane-output" role="region" aria-labelledby="settings-pane-title-output" data-settings-pane="output" tabindex="0" hidden>
               <div class="settings-pane-heading">
-                <h2>输出</h2>
+                <h2 id="settings-pane-title-output">输出</h2>
               </div>
               <div class="settings-pane-sections settings-pane-grid">
-                <section class="settings-section" aria-labelledby="settings-output-title">
+                <section class="settings-section" aria-labelledby="settings-output-title" data-settings-content="settings-output-title">
                   <h3 id="settings-output-title">输出结果</h3>
                   <label class="settings-row">
                     <span>自动去重</span>
@@ -246,7 +295,7 @@
                   </label>
                 </section>
 
-                <section class="settings-section" aria-labelledby="settings-batch-rename-title">
+                <section class="settings-section" aria-labelledby="settings-batch-rename-title" data-settings-content="settings-batch-rename-title">
                   <h3 id="settings-batch-rename-title">批量重命名</h3>
                   <div class="test-service-options batch-rename-options" role="group" aria-label="批量重命名字段">
                     <label class="test-service-option"><input id="batch-rename-region" type="checkbox" checked /><span>地区</span></label>
@@ -261,7 +310,7 @@
                   </div>
                 </section>
 
-                <section class="settings-section settings-section-wide" aria-labelledby="settings-output-filter-title">
+                <section class="settings-section settings-section-wide" aria-labelledby="settings-output-filter-title" data-settings-content="settings-output-filter-title">
                   <h3 id="settings-output-filter-title">当前结果筛选</h3>
                   <div class="settings-filter-groups">
                     <section class="output-rule-section settings-filter-group" aria-labelledby="output-filter-protocol-title">
@@ -295,32 +344,32 @@
 
               </div>
             </section>
-            <section class="settings-pane" id="settings-pane-list" role="tabpanel" aria-labelledby="settings-tab-list" data-settings-pane="list" tabindex="0" hidden>
+            <section class="settings-pane" id="settings-pane-list" role="region" aria-labelledby="settings-pane-title-list" data-settings-pane="list" tabindex="0" hidden>
               <div class="settings-pane-heading">
-                <h2>列表</h2>
+                <h2 id="settings-pane-title-list">列表</h2>
               </div>
               <div class="settings-pane-sections">
-                <section class="settings-section" aria-labelledby="settings-list-columns-title">
+                <section class="settings-section" aria-labelledby="settings-list-columns-title" data-settings-content="settings-list-columns-title">
                   <h3 id="settings-list-columns-title">列显示</h3>
                   <p class="settings-description">选择结果列表中显示的列，各列可以单独设置。</p>
                   <div id="output-column-visibility-groups" class="output-column-visibility-groups"></div>
                 </section>
               </div>
             </section>
-            <section class="settings-pane" id="settings-pane-detection" role="tabpanel" aria-labelledby="settings-tab-detection" data-settings-pane="detection" tabindex="0" hidden>
+            <section class="settings-pane" id="settings-pane-detection" role="region" aria-labelledby="settings-pane-title-detection" data-settings-pane="detection" tabindex="0" hidden>
               <div class="settings-pane-heading">
-                <h2>节点检测</h2>
+                <h2 id="settings-pane-title-detection">节点检测</h2>
               </div>
               <div class="settings-pane-sections">
                 <section class="settings-section" aria-labelledby="settings-node-test-title">
                   <h3 id="settings-node-test-title">检测参数</h3>
 
-                  <details class="test-settings-group">
+                  <details class="test-settings-group" id="node-test-one-click-settings" data-settings-content="node-test-one-click-settings">
                     <summary>一键测试项目</summary>
                     <div class="test-service-options" id="node-test-one-click-options" role="group" aria-label="一键测试项目"></div>
                   </details>
 
-                  <details class="test-settings-group">
+                  <details class="test-settings-group" id="node-test-tcping-settings" data-settings-content="node-test-tcping-settings">
                     <summary>TCPing</summary>
                     <label class="settings-row">
                       <span>超时</span>
@@ -345,7 +394,7 @@
                     </label>
                   </details>
 
-                  <details class="test-settings-group">
+                  <details class="test-settings-group" id="node-test-url204-settings" data-settings-content="node-test-url204-settings">
                     <summary>204 URL</summary>
                     <label class="settings-row settings-row-wide">
                       <span>主地址</span>
@@ -389,7 +438,7 @@
                     </label>
                   </details>
 
-                  <details class="test-settings-group">
+                  <details class="test-settings-group" id="node-test-bandwidth-settings" data-settings-content="node-test-bandwidth-settings">
                     <summary>传输质量测速</summary>
                     <label class="settings-row settings-row-wide">
                       <span>下载地址</span>
@@ -434,7 +483,7 @@
                     </label>
                   </details>
 
-                  <details class="test-settings-group link-detection-group">
+                  <details class="test-settings-group link-detection-group" id="node-test-link-settings" data-settings-content="node-test-link-settings">
                     <summary>链路检测</summary>
 
                     <details class="test-settings-group">
@@ -581,7 +630,7 @@
                     </details>
                   </details>
 
-                  <details class="test-settings-group">
+                  <details class="test-settings-group" id="node-test-unlock-settings" data-settings-content="node-test-unlock-settings">
                     <summary>流媒体与 AI 解锁</summary>
                     <label class="settings-row">
                       <span>节点并发</span>
@@ -613,6 +662,7 @@
 
               </div>
             </section>
+          </div>
           </div>
         </div>
       </div>

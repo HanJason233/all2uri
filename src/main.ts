@@ -726,10 +726,17 @@ const dom = {
   settingsButton: getElement<HTMLButtonElement>("settings-button"),
   settingsDialog: getElement<HTMLDialogElement>("app-settings-dialog"),
   settingsDialogClose: getElement<HTMLButtonElement>("settings-dialog-close"),
-  settingsNav: getElement<HTMLElement>("settings-nav"),
+  settingsHome: getElement<HTMLElement>("settings-home"),
+  settingsHomeSearch: getElement<HTMLInputElement>("settings-home-search"),
+  settingsHomeEmpty: getElement<HTMLParagraphElement>("settings-home-empty"),
+  settingsDetail: getElement<HTMLDivElement>("settings-detail"),
+  settingsDetailSearch: getElement<HTMLInputElement>("settings-detail-search"),
+  settingsBackHome: getElement<HTMLButtonElement>("settings-back-home"),
   settingsContent: getElement<HTMLDivElement>("settings-content"),
-  settingsTabs: Array.from(document.querySelectorAll<HTMLButtonElement>("[data-settings-tab]")),
+  settingsTabs: Array.from(document.querySelectorAll<HTMLButtonElement>(".settings-home-card[data-settings-tab]")),
   settingsPanes: Array.from(document.querySelectorAll<HTMLElement>("[data-settings-pane]")),
+  settingsSubnavs: Array.from(document.querySelectorAll<HTMLElement>("[data-settings-subnav]")),
+  settingsSubnavButtons: Array.from(document.querySelectorAll<HTMLButtonElement>("[data-settings-anchor]")),
   outputColumnVisibilityGroups: getElement<HTMLDivElement>("output-column-visibility-groups"),
   importClipboardButton: getElement<HTMLButtonElement>("import-clipboard-button"),
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
@@ -814,21 +821,89 @@ const dom = {
   toast: getElement<HTMLDivElement>("toast"),
 };
 
-let activeSettingsCategory = "input";
-
 function selectSettingsCategory(category: string) {
   if (!dom.settingsPanes.some(pane => pane.dataset.settingsPane === category)) return;
-  activeSettingsCategory = category;
+  dom.settingsHome.hidden = true;
+  dom.settingsDetail.hidden = false;
   for (const tab of dom.settingsTabs) {
     const selected = tab.dataset.settingsTab === category;
-    tab.setAttribute("aria-selected", String(selected));
-    tab.tabIndex = selected ? 0 : -1;
+    tab.setAttribute("aria-pressed", String(selected));
   }
   for (const pane of dom.settingsPanes) {
     pane.hidden = pane.dataset.settingsPane !== category;
   }
+  for (const subnav of dom.settingsSubnavs) {
+    subnav.hidden = subnav.dataset.settingsSubnav !== category;
+  }
+  dom.settingsDetailSearch.value = "";
+  filterSettingsSubnav();
   if (category === "list") renderOutputColumnVisibilityOptions();
   dom.settingsContent.scrollTop = 0;
+
+  const firstButton = dom.settingsSubnavButtons.find(button => button.closest<HTMLElement>("[data-settings-subnav]")?.dataset.settingsSubnav === category);
+  for (const button of dom.settingsSubnavButtons) button.removeAttribute("aria-current");
+  if (firstButton) {
+    firstButton.setAttribute("aria-current", "location");
+    const target = document.getElementById(firstButton.dataset.settingsAnchor ?? "");
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    showSettingsContent(category, firstButton);
+    firstButton.focus({ preventScroll: true });
+  }
+}
+
+function showSettingsHome() {
+  dom.settingsHome.hidden = false;
+  dom.settingsDetail.hidden = true;
+  dom.settingsHomeSearch.value = "";
+  dom.settingsDetailSearch.value = "";
+  filterSettingsHome();
+  for (const tab of dom.settingsTabs) tab.setAttribute("aria-pressed", "false");
+  for (const button of dom.settingsSubnavButtons) button.removeAttribute("aria-current");
+}
+
+function filterSettingsHome() {
+  const query = dom.settingsHomeSearch.value.trim().toLocaleLowerCase();
+  let visibleCount = 0;
+  for (const card of dom.settingsTabs) {
+    const matches = card.textContent?.toLocaleLowerCase().includes(query) ?? false;
+    card.hidden = !matches;
+    if (matches) visibleCount += 1;
+  }
+  dom.settingsHomeEmpty.hidden = visibleCount > 0;
+}
+
+function filterSettingsSubnav() {
+  const query = dom.settingsDetailSearch.value.trim().toLocaleLowerCase();
+  for (const button of dom.settingsSubnavButtons) {
+    const parent = button.closest<HTMLElement>("[data-settings-subnav]");
+    const matches = parent !== null && !parent.hidden && (button.textContent?.toLocaleLowerCase().includes(query) ?? false);
+    button.hidden = !matches;
+  }
+}
+
+function showSettingsContent(category: string, button: HTMLButtonElement) {
+  const pane = dom.settingsPanes.find(candidate => candidate.dataset.settingsPane === category);
+  if (!pane) return;
+  const selectedContent = button.dataset.settingsAnchor;
+  for (const content of pane.querySelectorAll<HTMLElement>("[data-settings-content]")) {
+    content.hidden = content.dataset.settingsContent !== selectedContent;
+  }
+  dom.settingsContent.scrollTop = 0;
+}
+
+function navigateSettingsAnchor(button: HTMLButtonElement) {
+  const target = document.getElementById(button.dataset.settingsAnchor ?? "");
+  if (!target) return;
+  for (const candidate of dom.settingsSubnavButtons) candidate.removeAttribute("aria-current");
+  button.setAttribute("aria-current", "location");
+
+  const category = button.closest<HTMLElement>("[data-settings-subnav]")?.dataset.settingsSubnav;
+  if (category) showSettingsContent(category, button);
+  let parentDetails = target.closest("details");
+  while (parentDetails) {
+    parentDetails.open = true;
+    parentDetails = parentDetails.parentElement?.closest("details") ?? null;
+  }
 }
 
 interface ResizeState {
@@ -3424,37 +3499,24 @@ function bindEvents() {
 
   dom.settingsButton.addEventListener("click", () => {
     renderOutputFilterSettingsOptions();
-    selectSettingsCategory(activeSettingsCategory);
+    showSettingsHome();
     dom.settingsDialog.showModal();
-    dom.settingsTabs.find(tab => tab.dataset.settingsTab === activeSettingsCategory)?.focus();
+    dom.settingsHomeSearch.focus();
   });
   dom.settingsDialogClose.addEventListener("click", () => dom.settingsDialog.close());
   dom.settingsDialog.addEventListener("click", event => {
     if (event.target === dom.settingsDialog) dom.settingsDialog.close();
   });
-  const settingsNavBreakpoint = window.matchMedia("(max-width: 760px)");
-  const syncSettingsNavOrientation = () => {
-    dom.settingsNav.setAttribute("aria-orientation", settingsNavBreakpoint.matches ? "horizontal" : "vertical");
-  };
-  syncSettingsNavOrientation();
-  settingsNavBreakpoint.addEventListener("change", syncSettingsNavOrientation);
-  dom.settingsTabs.forEach((tab, index) => {
-    tab.addEventListener("click", () => selectSettingsCategory(tab.dataset.settingsTab ?? "input"));
-    tab.addEventListener("keydown", event => {
-      let nextIndex = index;
-      const nextKey = dom.settingsNav.getAttribute("aria-orientation") === "vertical" ? "ArrowDown" : "ArrowRight";
-      const previousKey = dom.settingsNav.getAttribute("aria-orientation") === "vertical" ? "ArrowUp" : "ArrowLeft";
-      if (event.key === nextKey) nextIndex = (index + 1) % dom.settingsTabs.length;
-      else if (event.key === previousKey) nextIndex = (index - 1 + dom.settingsTabs.length) % dom.settingsTabs.length;
-      else if (event.key === "Home") nextIndex = 0;
-      else if (event.key === "End") nextIndex = dom.settingsTabs.length - 1;
-      else return;
-      event.preventDefault();
-      const nextTab = dom.settingsTabs[nextIndex];
-      selectSettingsCategory(nextTab.dataset.settingsTab ?? "input");
-      nextTab.focus();
-    });
+  dom.settingsBackHome.addEventListener("click", () => {
+    showSettingsHome();
+    dom.settingsHomeSearch.focus();
   });
+  dom.settingsHomeSearch.addEventListener("input", filterSettingsHome);
+  dom.settingsDetailSearch.addEventListener("input", filterSettingsSubnav);
+  dom.settingsTabs.forEach(tab => {
+    tab.addEventListener("click", () => selectSettingsCategory(tab.dataset.settingsTab ?? "input"));
+  });
+  dom.settingsSubnavButtons.forEach(button => button.addEventListener("click", () => navigateSettingsAnchor(button)));
   dom.batchRenameButton.addEventListener("click", batchRenameCurrentOutput);
 
   dom.convertButton.addEventListener("click", () => {
