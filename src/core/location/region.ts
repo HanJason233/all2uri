@@ -13,12 +13,12 @@ export const REGION_LOOKUP_OPTIONS: ReadonlyArray<{
   {
     value: "LOCAL_GEOIP",
     title: "本地 GeoIP 数据库",
-    description: "使用内置或自定义 geoip.dat 查询节点、入口和出口 IP 的归属地区。",
+    description: "使用内置或自定义 geoip.dat 查询目标 IP 的归属地区。",
   },
   {
     value: "REMOTE_API",
     title: "远程 API",
-    description: "仅将节点、入口和出口的公网 IP 发送至 ipwho.is 查询归属地区。",
+    description: "仅将目标公网 IP 发送至 ipwho.is 查询归属地区。",
   },
 ];
 

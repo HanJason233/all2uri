@@ -27,14 +27,10 @@ const BANDWIDTH_WARMUP_MS: u64 = 1_000;
 const DEFAULT_204_URL: &str = "https://www.google.com/generate_204";
 const DEFAULT_204_BACKUP_URL: &str = "https://www.gstatic.com/generate_204";
 const DEFAULT_BANDWIDTH_URL: &str = "https://speed.cloudflare.com/__down?bytes=25000000";
-const EXIT_IP_URLS_IPV4_FIRST: [&str; 2] = [
-    "https://api.ipify.org",
-    "https://api64.ipify.org",
-];
-const EXIT_IP_URLS_IPV6_FIRST: [&str; 3] = [
-    "https://api6.ipify.org",
-    "https://api64.ipify.org",
-    "https://api.ipify.org",
+const EXIT_IP_QUERY_SOURCES: &[(&str, &str, &str)] = &[
+    ("ipify_ipv4", "https://api.ipify.org", "ipv4"),
+    ("ipify_ipv6", "https://api6.ipify.org", "ipv6"),
+    ("ipify_dual", "https://api64.ipify.org", "dual"),
 ];
 
 // 入口/出口检测使用 CDN 网段分类，并在结果中标注提供商。
@@ -90,6 +86,20 @@ pub struct NodeTestRequest {
     backup_url: Option<String>,
     #[serde(default)]
     timeout_ms: Option<u64>,
+    #[serde(default)]
+    entry_dns_url: Option<String>,
+    #[serde(default)]
+    entry_ip_family: Option<String>,
+    #[serde(default)]
+    entry_dns_retries: Option<usize>,
+    #[serde(default)]
+    detect_cdn_type: Option<bool>,
+    #[serde(default)]
+    exit_ip_family: Option<String>,
+    #[serde(default)]
+    exit_ip_sources: Option<Vec<String>>,
+    #[serde(default)]
+    exit_ip_retries: Option<usize>,
     #[serde(default)]
     warmup_timeout_ms: Option<u64>,
     #[serde(default)]
@@ -516,19 +526,101 @@ fn is_ip(value: &str) -> bool {
     value.parse::<IpAddr>().is_ok()
 }
 
-async fn resolve_entries(server: &str, port: u16) -> Vec<String> {
-    if is_ip(server) {
-        return vec![server.to_string()];
+fn matches_ip_family(address: IpAddr, family: &str) -> bool {
+    match family {
+        "ipv4" => address.is_ipv4(),
+        "ipv6" => address.is_ipv6(),
+        _ => true,
     }
-    match tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host((server, port))).await {
-        Ok(Ok(addresses)) => {
-            let mut values: Vec<String> = addresses.map(|address| address.ip().to_string()).collect();
-            values.sort();
-            values.dedup();
-            values
+}
+
+async fn query_doh(resolver: &Client, resolver_url: &str, server: &str, record_type: &str) -> Result<Vec<String>, String> {
+    let response = resolver.get(resolver_url)
+        .query(&[("name", server), ("type", record_type)])
+        .header(ACCEPT, "application/dns-json")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("DNS 查询失败，HTTP {status}"));
+    }
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    let value = serde_json::from_str::<Value>(&body).map_err(|error| error.to_string())?;
+    let addresses = value.get("Answer")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|answer| answer.get("data").and_then(Value::as_str))
+        .filter(|address| is_ip(address))
+        .map(str::to_string)
+        .collect();
+    Ok(addresses)
+}
+
+async fn resolve_entries(
+    server: &str,
+    port: u16,
+    resolver_url: Option<&str>,
+    family: &str,
+    timeout_ms: u64,
+    retries: usize,
+) -> Result<Vec<String>, String> {
+    if let Ok(address) = server.parse::<IpAddr>() {
+        return if matches_ip_family(address, family) {
+            Ok(vec![address.to_string()])
+        } else {
+            Err("节点服务器 IP 与所选地址类型不匹配".to_string())
+        };
+    }
+
+    let timeout_duration = Duration::from_millis(timeout_ms.clamp(1_000, 30_000));
+    let mut last_error = "DNS 查询没有返回 IP 地址".to_string();
+    for _ in 0..=retries.min(5) {
+        let lookup_result = if let Some(resolver_url) = resolver_url {
+            match Client::builder().timeout(timeout_duration).build() {
+                Ok(resolver) => {
+                    let (ipv4, ipv6) = tokio::join!(
+                        query_doh(&resolver, resolver_url, server, "A"),
+                        query_doh(&resolver, resolver_url, server, "AAAA"),
+                    );
+                    match (ipv4, ipv6) {
+                        (Ok(mut ipv4), Ok(mut ipv6)) => {
+                            ipv4.append(&mut ipv6);
+                            Ok(ipv4)
+                        }
+                        (Ok(addresses), Err(_)) | (Err(_), Ok(addresses)) => Ok(addresses),
+                        (Err(error), Err(_)) => Err(error),
+                    }
+                }
+                Err(error) => Err(error.to_string()),
+            }
+        } else {
+            match tokio::time::timeout(timeout_duration, tokio::net::lookup_host((server, port))).await {
+                Ok(Ok(addresses)) => Ok(addresses.map(|address| address.ip().to_string()).collect()),
+                Ok(Err(error)) => Err(error.to_string()),
+                Err(_) => Err("DNS 查询超时".to_string()),
+            }
+        };
+
+        match lookup_result {
+            Ok(addresses) => {
+                let mut addresses: Vec<String> = addresses.into_iter()
+                    .filter_map(|value| value.parse::<IpAddr>().ok())
+                    .filter(|address| matches_ip_family(*address, family))
+                    .map(|address| address.to_string())
+                    .collect();
+                addresses.sort();
+                addresses.dedup();
+                if !addresses.is_empty() {
+                    return Ok(addresses);
+                }
+                last_error = "DNS 查询没有返回所选地址类型的 IP".to_string();
+            }
+            Err(error) => last_error = error,
         }
-        _ => Vec::new(),
     }
+    Err(last_error)
 }
 
 fn cdn_provider(ip: IpAddr) -> Option<&'static str> {
@@ -537,16 +629,16 @@ fn cdn_provider(ip: IpAddr) -> Option<&'static str> {
     })
 }
 
-async fn test_entry(server: &str, port: u16) -> NodeTestResponse {
-    let entries = resolve_entries(server, port).await;
-    if entries.is_empty() {
-        return NodeTestResponse::error("\u{65e0}\u{6cd5}\u{89e3}\u{6790}\u{8282}\u{70b9}\u{670d}\u{52a1}\u{5668}\u{5165}\u{53e3}\u{5730}\u{5740}");
-    }
-    let provider = entries
+async fn test_entry(server: &str, port: u16, resolver_url: Option<&str>, family: &str, timeout_ms: u64, retries: usize, detect_cdn_type: bool) -> NodeTestResponse {
+    let entries = match resolve_entries(server, port, resolver_url, family, timeout_ms, retries).await {
+        Ok(entries) => entries,
+        Err(error) => return NodeTestResponse::error(format!("入口 IP 查询失败：{error}")),
+    };
+    let provider = detect_cdn_type.then(|| entries
         .iter()
         .filter_map(|value| value.parse::<IpAddr>().ok())
         .find_map(cdn_provider)
-        .map(str::to_string);
+        .map(str::to_string)).flatten();
     NodeTestResponse {
         success: true,
         entry_ips: entries,
@@ -555,44 +647,83 @@ async fn test_entry(server: &str, port: u16) -> NodeTestResponse {
     }
 }
 
-async fn fetch_exit_ip(client: &Client, prefer_ipv6: bool) -> Option<String> {
-    let targets: &[&str] = if prefer_ipv6 {
-        &EXIT_IP_URLS_IPV6_FIRST
+fn ordered_exit_ip_sources(source_ids: &[String], family: &str, prefer_ipv6: bool) -> Vec<(&'static str, &'static str, &'static str)> {
+    let preferred_id = if family == "ipv6" || (family == "auto" && prefer_ipv6) { "ipify_ipv6" } else { "ipify_ipv4" };
+    let selected = if source_ids.is_empty() {
+        EXIT_IP_QUERY_SOURCES.iter().map(|source| source.0.to_string()).collect::<Vec<_>>()
     } else {
-        &EXIT_IP_URLS_IPV4_FIRST
+        source_ids.to_vec()
     };
-    for url in targets {
-        let Ok(response) = client.get(*url).send().await else {
-            continue;
-        };
-        if response.status().as_u16() != 200 {
-            continue;
-        }
-        if let Ok(body) = response.text().await {
-            let value = body.trim();
-            if is_ip(value) {
-                return Some(value.to_string());
+    let mut sources: Vec<_> = selected.iter()
+        .filter_map(|id| EXIT_IP_QUERY_SOURCES.iter().find(|source| source.0 == id))
+        .filter(|source| family == "auto" || source.2 == "dual" || source.2 == family)
+        .copied()
+        .collect();
+    if family == "auto" {
+        sources.sort_by_key(|source| {
+            if source.0 == preferred_id { 0 }
+            else if source.2 == "dual" { 1 }
+            else { 2 }
+        });
+    }
+    sources
+}
+
+async fn fetch_exit_ip(client: &Client, sources: &[(&str, &str, &str)], family: &str, timeout_ms: u64, retries: usize) -> Option<String> {
+    for (_, url, _) in sources {
+        for _ in 0..=retries.min(5) {
+            let request = async {
+                let response = client.get(*url).send().await.ok()?;
+                if response.status().as_u16() != 200 {
+                    return None;
+                }
+                let body = response.text().await.ok()?;
+                body.trim().parse::<IpAddr>().ok()
+            };
+            let address = tokio::time::timeout(Duration::from_millis(timeout_ms.clamp(1_000, 30_000)), request)
+                .await.ok().flatten();
+            if let Some(address) = address.filter(|address| matches_ip_family(*address, family)) {
+                return Some(address.to_string());
             }
         }
     }
     None
 }
 
-async fn test_exit(client: &Client, server: &str, port: u16) -> NodeTestResponse {
-    let entries = resolve_entries(server, port).await;
-    let prefer_ipv6 = !entries.is_empty()
-        && entries
-            .iter()
-            .filter_map(|value| value.parse::<IpAddr>().ok())
-            .all(|address| address.is_ipv6());
-    let Some(exit_ip) = fetch_exit_ip(client, prefer_ipv6).await else {
+async fn test_exit(
+    client: &Client,
+    server: &str,
+    port: u16,
+    family: &str,
+    source_ids: &[String],
+    timeout_ms: u64,
+    retries: usize,
+    detect_cdn_type: bool,
+) -> NodeTestResponse {
+    let prefer_ipv6 = resolve_entries(server, port, None, "all", 5_000, 0).await.ok()
+        .map(|entries| !entries.is_empty()
+            && entries.iter()
+                .filter_map(|value| value.parse::<IpAddr>().ok())
+                .all(|address| address.is_ipv6()))
+        .unwrap_or(false);
+    let sources = ordered_exit_ip_sources(source_ids, family, prefer_ipv6);
+    if sources.is_empty() {
+        return NodeTestResponse::error("没有启用与所选 IP 地址族匹配的出口查询源");
+    }
+    let Some(exit_ip) = fetch_exit_ip(
+        client,
+        &sources,
+        family,
+        timeout_ms,
+        retries,
+    ).await else {
         return NodeTestResponse::error("\u{65e0}\u{6cd5}\u{83b7}\u{53d6}\u{6709}\u{6548}\u{51fa}\u{53e3} IP");
     };
-    let provider = exit_ip
+    let provider = detect_cdn_type.then(|| exit_ip
         .parse::<IpAddr>()
         .ok()
         .and_then(cdn_provider)
-        .map(str::to_string);
+        .map(str::to_string)).flatten();
     NodeTestResponse {
         success: true,
         exit_ip: Some(exit_ip),
@@ -1205,7 +1336,15 @@ pub async fn run_node_test(
         return Ok(tcping(&request.server, request.port, timeout_ms).await);
     }
     if request.kind == "entry" {
-        return Ok(test_entry(&request.server, request.port).await);
+        return Ok(test_entry(
+            &request.server,
+            request.port,
+            request.entry_dns_url.as_deref(),
+            request.entry_ip_family.as_deref().unwrap_or("all"),
+            timeout_ms,
+            request.entry_dns_retries.unwrap_or(0),
+            request.detect_cdn_type.unwrap_or(true),
+        ).await);
     }
     if request.outbound.is_none() && request.endpoint.is_none() {
         return Ok(NodeTestResponse::error("当前节点没有可用的 sing-box 配置"));
@@ -1239,7 +1378,16 @@ pub async fn run_node_test(
             bandwidth_duration_ms,
             request.bandwidth_streams.unwrap_or(4),
         ).await,
-        "exit" => test_exit(&client, &request.server, request.port).await,
+        "exit" => test_exit(
+            &client,
+            &request.server,
+            request.port,
+            request.exit_ip_family.as_deref().unwrap_or("auto"),
+            request.exit_ip_sources.as_deref().unwrap_or(&[]),
+            timeout_ms,
+            request.exit_ip_retries.unwrap_or(0),
+            request.detect_cdn_type.unwrap_or(true),
+        ).await,
         "unlock" => test_unlock(
             &client,
             request.unlock_service_ids.as_deref(),
@@ -1262,12 +1410,12 @@ mod tests {
 
     #[tokio::test]
     async fn entry_detection_reports_cdn_and_non_cdn_entries() {
-        let cdn = test_entry("104.16.0.1", 443).await;
+        let cdn = test_entry("104.16.0.1", 443, None, "all", 5_000, 0, true).await;
         assert!(cdn.success);
         assert_eq!(cdn.entry_ips, vec!["104.16.0.1".to_string()]);
         assert_eq!(cdn.cdn_provider.as_deref(), Some("Cloudflare"));
 
-        let non_cdn = test_entry("8.8.8.8", 443).await;
+        let non_cdn = test_entry("8.8.8.8", 443, None, "all", 5_000, 0, true).await;
         assert!(non_cdn.success);
         assert_eq!(non_cdn.entry_ips, vec!["8.8.8.8".to_string()]);
         assert!(non_cdn.cdn_provider.is_none());

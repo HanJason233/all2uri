@@ -4,6 +4,9 @@ import { buildSingBoxTestProfile } from "./core/testing/sing-box.ts";
 
 export type NodeTestKind = "tcping" | "url204" | "bandwidth" | "entry" | "exit" | "unlock";
 type ConcurrencyMode = "count" | "percent";
+type EntryDnsMode = "system" | "cloudflare" | "google" | "custom";
+type IpFamilyMode = "all" | "ipv4" | "ipv6";
+type ExitIpFamilyMode = "auto" | "ipv4" | "ipv6";
 
 export interface NodeTestEntry {
   id: string;
@@ -48,13 +51,22 @@ export interface NodeTestResponse {
   error?: string;
 }
 
+export interface LinkDetectionSettings {
+  entryIpEnabled: boolean;
+  entryRegionEnabled: boolean;
+  entryTypeEnabled: boolean;
+  exitIpEnabled: boolean;
+  exitRegionEnabled: boolean;
+  exitTypeEnabled: boolean;
+}
+
 export interface UnlockServiceDefinition {
   id: string;
   name: string;
   category: "network" | "ai" | "streaming" | "other";
 }
 
-interface TestSettings {
+interface TestSettings extends LinkDetectionSettings {
   oneClickTestKinds: NodeTestKind[];
 
   tcpingTimeoutMs: number;
@@ -80,8 +92,17 @@ interface TestSettings {
 
   entryConcurrencyMode: ConcurrencyMode;
   entryConcurrency: number;
+  entryDnsMode: EntryDnsMode;
+  entryDnsUrl: string;
+  entryIpFamily: IpFamilyMode;
+  entryDnsTimeoutMs: number;
+  entryDnsRetries: number;
   exitConcurrencyMode: ConcurrencyMode;
   exitConcurrency: number;
+  exitIpFamily: ExitIpFamilyMode;
+  exitIpSources: string[];
+  exitIpTimeoutMs: number;
+  exitIpRetries: number;
 
   unlockConcurrencyMode: ConcurrencyMode;
   unlockConcurrency: number;
@@ -92,6 +113,7 @@ interface TestSettings {
 
 export interface NodeTestController {
   getResult(entryId: string, kind: NodeTestKind): NodeTestResultState | undefined;
+  getLinkDetectionSettings(): LinkDetectionSettings;
   clearResults(): void;
   getUnlockServices(): UnlockServiceDefinition[];
   isRunning(): boolean;
@@ -109,7 +131,7 @@ const DEFAULT_204_URL = "https://www.google.com/generate_204";
 const DEFAULT_204_BACKUP_URL = "https://www.gstatic.com/generate_204";
 const DEFAULT_BANDWIDTH_URL = "https://speed.cloudflare.com/__down?bytes=25000000";
 const SETTINGS_KEY = "all2uri.node-test-settings";
-const SETTINGS_SCHEMA_VERSION = 4;
+const SETTINGS_SCHEMA_VERSION = 6;
 const TEST_KINDS: NodeTestKind[] = ["tcping", "url204", "bandwidth", "entry", "exit", "unlock"];
 const TEST_KIND_LABELS: Record<NodeTestKind, string> = {
   tcping: "TCPing",
@@ -119,6 +141,12 @@ const TEST_KIND_LABELS: Record<NodeTestKind, string> = {
   exit: "出口检测",
   unlock: "流媒体与 AI 解锁",
 };
+const EXIT_IP_SOURCES = [
+  { id: "ipify_ipv4", label: "ipify IPv4", url: "https://api.ipify.org", family: "ipv4" },
+  { id: "ipify_ipv6", label: "ipify IPv6", url: "https://api6.ipify.org", family: "ipv6" },
+  { id: "ipify_dual", label: "ipify 双栈", url: "https://api64.ipify.org", family: "dual" },
+] as const;
+const DEFAULT_EXIT_IP_SOURCE_IDS = EXIT_IP_SOURCES.map(source => source.id);
 const UNLOCK_SERVICES: UnlockServiceDefinition[] = [
   { id: "google_cn", name: "Google \u9001\u4e2d\u68c0\u6d4b", category: "network" },
   { id: "chatgpt", name: "ChatGPT / OpenAI", category: "ai" },
@@ -153,6 +181,8 @@ const resultMap = new Map<string, Map<NodeTestKind, NodeTestResultState>>();
 let testButtons: HTMLButtonElement[] = [];
 let oneClickTestButton: HTMLButtonElement | null = null;
 let hasOneClickTests = true;
+let hasEntryLinkDetection = true;
+let hasExitLinkDetection = true;
 let running = false;
 
 function byId<T extends HTMLElement>(id: string): T {
@@ -195,10 +225,25 @@ function defaultSettings(): TestSettings {
     bandwidthConcurrency: 10,
     bandwidthAutoDeleteLowSpeedNodes: true,
     bandwidthAutoDeleteThresholdMbps: 1,
+    entryIpEnabled: true,
+    entryRegionEnabled: true,
+    entryTypeEnabled: true,
     entryConcurrencyMode: "percent",
     entryConcurrency: 30,
+    entryDnsMode: "system",
+    entryDnsUrl: "https://cloudflare-dns.com/dns-query",
+    entryIpFamily: "all",
+    entryDnsTimeoutMs: 5_000,
+    entryDnsRetries: 0,
     exitConcurrencyMode: "percent",
     exitConcurrency: 30,
+    exitIpEnabled: true,
+    exitRegionEnabled: true,
+    exitTypeEnabled: true,
+    exitIpFamily: "auto",
+    exitIpSources: [...DEFAULT_EXIT_IP_SOURCE_IDS],
+    exitIpTimeoutMs: 10_000,
+    exitIpRetries: 0,
     unlockConcurrencyMode: "percent",
     unlockConcurrency: 30,
     unlockRequestConcurrency: 4,
@@ -245,12 +290,17 @@ function loadSettings(): TestSettings {
     }
     const savedBandwidthConcurrencyMode = concurrencyMode(parsed.bandwidthConcurrencyMode ?? fallback.bandwidthConcurrencyMode);
     const savedBandwidthConcurrencyMax = savedBandwidthConcurrencyMode === "percent" ? 100 : 3;
+    const savedEntryConcurrencyMode = concurrencyMode(parsed.entryConcurrencyMode ?? parsed.linkTypeConcurrencyMode ?? fallback.entryConcurrencyMode);
+    const savedExitConcurrencyMode = concurrencyMode(parsed.exitConcurrencyMode ?? parsed.linkTypeConcurrencyMode ?? fallback.exitConcurrencyMode);
     const storedTestKinds: unknown[] = Array.isArray(parsed.oneClickTestKinds)
       ? parsed.oneClickTestKinds
       : fallback.oneClickTestKinds;
     const selectedTestKinds = storedTestKinds
       .flatMap(kind => kind === "linkType" ? ["entry", "exit"] : [kind])
       .filter((kind): kind is NodeTestKind => typeof kind === "string" && TEST_KINDS.includes(kind as NodeTestKind));
+    const savedExitIpSources = Array.isArray(parsed.exitIpSources)
+      ? [...new Set(parsed.exitIpSources.filter((id): id is string => typeof id === "string" && EXIT_IP_SOURCES.some(source => source.id === id)))]
+      : [...fallback.exitIpSources];
     const settings: TestSettings = {
       oneClickTestKinds: [...new Set(selectedTestKinds)],
       tcpingTimeoutMs: clampNumber(String(parsed.tcpingTimeoutMs ?? legacyTimeout ?? fallback.tcpingTimeoutMs), fallback.tcpingTimeoutMs, 500, 120_000),
@@ -271,10 +321,25 @@ function loadSettings(): TestSettings {
       bandwidthConcurrency: clampNumber(String(parsed.bandwidthConcurrency ?? legacyConcurrency ?? fallback.bandwidthConcurrency), fallback.bandwidthConcurrency, 1, savedBandwidthConcurrencyMax),
       bandwidthAutoDeleteLowSpeedNodes: typeof parsed.bandwidthAutoDeleteLowSpeedNodes === "boolean" ? parsed.bandwidthAutoDeleteLowSpeedNodes : fallback.bandwidthAutoDeleteLowSpeedNodes,
       bandwidthAutoDeleteThresholdMbps: clampNumber(String(parsed.bandwidthAutoDeleteThresholdMbps ?? fallback.bandwidthAutoDeleteThresholdMbps), fallback.bandwidthAutoDeleteThresholdMbps, 1, 10_000),
-      entryConcurrencyMode: concurrencyMode(parsed.entryConcurrencyMode ?? parsed.linkTypeConcurrencyMode ?? fallback.entryConcurrencyMode),
-      entryConcurrency: clampNumber(String(parsed.entryConcurrency ?? parsed.linkTypeConcurrency ?? fallback.entryConcurrency), fallback.entryConcurrency, 1, 512),
-      exitConcurrencyMode: concurrencyMode(parsed.exitConcurrencyMode ?? parsed.linkTypeConcurrencyMode ?? fallback.exitConcurrencyMode),
-      exitConcurrency: clampNumber(String(parsed.exitConcurrency ?? parsed.linkTypeConcurrency ?? fallback.exitConcurrency), fallback.exitConcurrency, 1, 512),
+      entryIpEnabled: typeof parsed.entryIpEnabled === "boolean" ? parsed.entryIpEnabled : fallback.entryIpEnabled,
+      entryRegionEnabled: typeof parsed.entryRegionEnabled === "boolean" ? parsed.entryRegionEnabled : fallback.entryRegionEnabled,
+      entryTypeEnabled: typeof parsed.entryTypeEnabled === "boolean" ? parsed.entryTypeEnabled : fallback.entryTypeEnabled,
+      entryConcurrencyMode: savedEntryConcurrencyMode,
+      entryConcurrency: clampNumber(String(parsed.entryConcurrency ?? parsed.linkTypeConcurrency ?? fallback.entryConcurrency), fallback.entryConcurrency, 1, savedEntryConcurrencyMode === "percent" ? 100 : 32),
+      entryDnsMode: parsed.entryDnsMode === "cloudflare" || parsed.entryDnsMode === "google" || parsed.entryDnsMode === "custom" ? parsed.entryDnsMode : fallback.entryDnsMode,
+      entryDnsUrl: typeof parsed.entryDnsUrl === "string" && parsed.entryDnsUrl.trim() ? parsed.entryDnsUrl.trim() : fallback.entryDnsUrl,
+      entryIpFamily: parsed.entryIpFamily === "ipv4" || parsed.entryIpFamily === "ipv6" ? parsed.entryIpFamily : fallback.entryIpFamily,
+      entryDnsTimeoutMs: clampNumber(String(parsed.entryDnsTimeoutMs ?? fallback.entryDnsTimeoutMs), fallback.entryDnsTimeoutMs, 1_000, 30_000),
+      entryDnsRetries: clampNumber(String(parsed.entryDnsRetries ?? fallback.entryDnsRetries), fallback.entryDnsRetries, 0, 5),
+      exitConcurrencyMode: savedExitConcurrencyMode,
+      exitConcurrency: clampNumber(String(parsed.exitConcurrency ?? parsed.linkTypeConcurrency ?? fallback.exitConcurrency), fallback.exitConcurrency, 1, savedExitConcurrencyMode === "percent" ? 100 : 32),
+      exitIpEnabled: typeof parsed.exitIpEnabled === "boolean" ? parsed.exitIpEnabled : fallback.exitIpEnabled,
+      exitRegionEnabled: typeof parsed.exitRegionEnabled === "boolean" ? parsed.exitRegionEnabled : fallback.exitRegionEnabled,
+      exitTypeEnabled: typeof parsed.exitTypeEnabled === "boolean" ? parsed.exitTypeEnabled : fallback.exitTypeEnabled,
+      exitIpFamily: parsed.exitIpFamily === "ipv4" || parsed.exitIpFamily === "ipv6" ? parsed.exitIpFamily : fallback.exitIpFamily,
+      exitIpSources: savedExitIpSources.length ? savedExitIpSources : [...fallback.exitIpSources],
+      exitIpTimeoutMs: clampNumber(String(parsed.exitIpTimeoutMs ?? fallback.exitIpTimeoutMs), fallback.exitIpTimeoutMs, 1_000, 30_000),
+      exitIpRetries: clampNumber(String(parsed.exitIpRetries ?? fallback.exitIpRetries), fallback.exitIpRetries, 0, 5),
       unlockConcurrencyMode: concurrencyMode(parsed.unlockConcurrencyMode ?? fallback.unlockConcurrencyMode),
       unlockConcurrency: clampNumber(String(parsed.unlockConcurrency ?? fallback.unlockConcurrency), fallback.unlockConcurrency, 1, 512),
       unlockRequestConcurrency: clampNumber(String(parsed.unlockRequestConcurrency ?? fallback.unlockRequestConcurrency), fallback.unlockRequestConcurrency, 1, 12),
@@ -333,7 +398,10 @@ function getResult(entryId: string, kind: NodeTestKind): NodeTestResultState | u
 
 export function refreshNodeTestButtons(enabled: boolean): void {
   for (const button of testButtons) {
-    button.disabled = !enabled || running;
+    const kind = button.dataset.nodeTestKind;
+    const disabledByDetectionSettings = kind === "entry" && !hasEntryLinkDetection
+      || kind === "exit" && !hasExitLinkDetection;
+    button.disabled = !enabled || running || disabledByDetectionSettings;
   }
   if (oneClickTestButton) oneClickTestButton.disabled = !enabled || running || !hasOneClickTests;
 }
@@ -430,8 +498,24 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
   const bandwidthMode = byId<HTMLSelectElement>("node-test-bandwidth-concurrency-mode");
   const bandwidthAutoDelete = byId<HTMLInputElement>("node-test-bandwidth-auto-delete");
   const bandwidthThreshold = byId<HTMLInputElement>("node-test-bandwidth-threshold");
+  const entryDnsMode = byId<HTMLSelectElement>("node-test-entry-dns-mode");
+  const entryIpEnabled = byId<HTMLInputElement>("node-test-entry-ip-enabled");
+  const entryRegionEnabled = byId<HTMLInputElement>("node-test-entry-region-enabled");
+  const entryTypeEnabled = byId<HTMLInputElement>("node-test-entry-type-enabled");
+  const entryDnsUrl = byId<HTMLInputElement>("node-test-entry-dns-url");
+  const entryDnsUrlRow = byId<HTMLLabelElement>("node-test-entry-dns-url-row");
+  const entryIpFamily = byId<HTMLSelectElement>("node-test-entry-ip-family");
+  const entryDnsTimeout = byId<HTMLInputElement>("node-test-entry-dns-timeout");
+  const entryDnsRetries = byId<HTMLInputElement>("node-test-entry-dns-retries");
   const entryConcurrency = byId<HTMLInputElement>("node-test-entry-concurrency");
   const entryMode = byId<HTMLSelectElement>("node-test-entry-concurrency-mode");
+  const exitIpFamily = byId<HTMLSelectElement>("node-test-exit-ip-family");
+  const exitIpEnabled = byId<HTMLInputElement>("node-test-exit-ip-enabled");
+  const exitRegionEnabled = byId<HTMLInputElement>("node-test-exit-region-enabled");
+  const exitTypeEnabled = byId<HTMLInputElement>("node-test-exit-type-enabled");
+  const exitIpSources = byId<HTMLDivElement>("node-test-exit-ip-sources");
+  const exitIpTimeout = byId<HTMLInputElement>("node-test-exit-ip-timeout");
+  const exitIpRetries = byId<HTMLInputElement>("node-test-exit-ip-retries");
   const exitConcurrency = byId<HTMLInputElement>("node-test-exit-concurrency");
   const exitMode = byId<HTMLSelectElement>("node-test-exit-concurrency-mode");
   const unlockConcurrency = byId<HTMLInputElement>("node-test-unlock-concurrency");
@@ -449,8 +533,27 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     if (Number.isFinite(value) && value > max) bandwidthConcurrency.value = String(max);
   };
 
+  const syncLinkConcurrencyRange = (input: HTMLInputElement, mode: HTMLSelectElement) => {
+    const max = mode.value === "percent" ? 100 : 32;
+    input.max = String(max);
+    const value = Number(input.value);
+    if (Number.isFinite(value) && value > max) input.value = String(max);
+  };
+  const syncEntryConcurrencyRange = () => syncLinkConcurrencyRange(entryConcurrency, entryMode);
+  const syncExitConcurrencyRange = () => syncLinkConcurrencyRange(exitConcurrency, exitMode);
+
+  const updateDetectionAvailability = (settings: TestSettings) => {
+    hasEntryLinkDetection = settings.entryIpEnabled || settings.entryRegionEnabled || settings.entryTypeEnabled;
+    hasExitLinkDetection = settings.exitIpEnabled || settings.exitRegionEnabled || settings.exitTypeEnabled;
+    hasOneClickTests = settings.oneClickTestKinds.some(kind => kind === "entry"
+      ? hasEntryLinkDetection
+      : kind === "exit" ? hasExitLinkDetection : true);
+  };
+
   const readSettings = (): TestSettings => {
     const selectedBandwidthConcurrencyMode = concurrencyMode(bandwidthMode.value);
+    const selectedEntryConcurrencyMode = concurrencyMode(entryMode.value);
+    const selectedExitConcurrencyMode = concurrencyMode(exitMode.value);
     const selectedIds = Array.from(unlockServices.querySelectorAll<HTMLInputElement>("input[data-service-id]:checked"))
       .map(input => input.dataset.serviceId ?? "")
       .filter(Boolean);
@@ -477,10 +580,27 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
       bandwidthConcurrency: clampNumber(bandwidthConcurrency.value, 10, 1, selectedBandwidthConcurrencyMode === "percent" ? 100 : 3),
       bandwidthAutoDeleteLowSpeedNodes: bandwidthAutoDelete.checked,
       bandwidthAutoDeleteThresholdMbps: clampNumber(bandwidthThreshold.value, 1, 1, 10_000),
-      entryConcurrencyMode: concurrencyMode(entryMode.value),
-      entryConcurrency: clampNumber(entryConcurrency.value, 30, 1, 512),
-      exitConcurrencyMode: concurrencyMode(exitMode.value),
-      exitConcurrency: clampNumber(exitConcurrency.value, 30, 1, 512),
+      entryIpEnabled: entryIpEnabled.checked,
+      entryRegionEnabled: entryRegionEnabled.checked,
+      entryTypeEnabled: entryTypeEnabled.checked,
+      entryConcurrencyMode: selectedEntryConcurrencyMode,
+      entryConcurrency: clampNumber(entryConcurrency.value, 30, 1, selectedEntryConcurrencyMode === "percent" ? 100 : 32),
+      entryDnsMode: entryDnsMode.value === "cloudflare" || entryDnsMode.value === "google" || entryDnsMode.value === "custom" ? entryDnsMode.value : "system",
+      entryDnsUrl: entryDnsUrl.value.trim() || "https://cloudflare-dns.com/dns-query",
+      entryIpFamily: entryIpFamily.value === "ipv4" || entryIpFamily.value === "ipv6" ? entryIpFamily.value : "all",
+      entryDnsTimeoutMs: clampNumber(entryDnsTimeout.value, 5_000, 1_000, 30_000),
+      entryDnsRetries: clampNumber(entryDnsRetries.value, 0, 0, 5),
+      exitConcurrencyMode: selectedExitConcurrencyMode,
+      exitConcurrency: clampNumber(exitConcurrency.value, 30, 1, selectedExitConcurrencyMode === "percent" ? 100 : 32),
+      exitIpEnabled: exitIpEnabled.checked,
+      exitRegionEnabled: exitRegionEnabled.checked,
+      exitTypeEnabled: exitTypeEnabled.checked,
+      exitIpFamily: exitIpFamily.value === "ipv4" || exitIpFamily.value === "ipv6" ? exitIpFamily.value : "auto",
+      exitIpSources: Array.from(exitIpSources.querySelectorAll<HTMLInputElement>("input[data-exit-ip-source]:checked"))
+        .map(input => input.dataset.exitIpSource ?? "")
+        .filter(Boolean),
+      exitIpTimeoutMs: clampNumber(exitIpTimeout.value, 10_000, 1_000, 30_000),
+      exitIpRetries: clampNumber(exitIpRetries.value, 0, 0, 5),
       unlockConcurrencyMode: concurrencyMode(unlockMode.value),
       unlockConcurrency: clampNumber(unlockConcurrency.value, 30, 1, 512),
       unlockRequestConcurrency: clampNumber(unlockRequestConcurrency.value, 4, 1, 12),
@@ -492,7 +612,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
   const persist = () => {
     const settings = readSettings();
     saveSettings(settings);
-    hasOneClickTests = settings.oneClickTestKinds.length > 0;
+    updateDetectionAvailability(settings);
     refreshNodeTestButtons(options.getEntries().length > 0);
     options.onResultsChanged();
   };
@@ -546,6 +666,60 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     }
   };
 
+  const renderExitIpSourceOptions = (selectedIds: string[]) => {
+    const orderedSources = [
+      ...selectedIds.map(id => EXIT_IP_SOURCES.find(source => source.id === id)).filter((source): source is typeof EXIT_IP_SOURCES[number] => source !== undefined),
+      ...EXIT_IP_SOURCES.filter(source => !selectedIds.includes(source.id)),
+    ];
+    exitIpSources.replaceChildren();
+    for (const source of orderedSources) {
+      const row = document.createElement("div");
+      row.className = "exit-ip-source-row";
+      const label = document.createElement("label");
+      label.className = "test-service-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.exitIpSource = source.id;
+      input.checked = selectedIds.includes(source.id);
+      input.addEventListener("change", () => {
+        const checked = exitIpSources.querySelectorAll<HTMLInputElement>("input[data-exit-ip-source]:checked");
+        if (!input.checked && checked.length === 0) {
+          input.checked = true;
+          status.textContent = "至少保留一个出口 IP 查询源";
+          return;
+        }
+        persist();
+      });
+      const text = document.createElement("span");
+      text.textContent = source.label;
+      label.append(input, text);
+
+      const controls = document.createElement("div");
+      controls.className = "exit-ip-source-order-controls";
+      for (const [offset, icon, action] of [[-1, "↑", "上移"], [1, "↓", "下移"]] as const) {
+        const button = document.createElement("button");
+        button.className = "settings-link-button";
+        button.type = "button";
+        button.textContent = icon;
+        button.disabled = !input.checked;
+        button.setAttribute("aria-label", `${action}${source.label}`);
+        button.addEventListener("click", () => {
+          const selected = Array.from(exitIpSources.querySelectorAll<HTMLInputElement>("input[data-exit-ip-source]:checked"))
+            .map(checkbox => checkbox.dataset.exitIpSource ?? "");
+          const index = selected.indexOf(source.id);
+          const nextIndex = index + offset;
+          if (index < 0 || nextIndex < 0 || nextIndex >= selected.length) return;
+          [selected[index], selected[nextIndex]] = [selected[nextIndex]!, selected[index]!];
+          renderExitIpSourceOptions(selected);
+          persist();
+        });
+        controls.append(button);
+      }
+      row.append(label, controls);
+      exitIpSources.append(row);
+    }
+  };
+
   const applySettings = (settings: TestSettings) => {
     tcpingTimeout.value = String(settings.tcpingTimeoutMs);
     tcpingConcurrency.value = String(settings.tcpingConcurrency);
@@ -566,25 +740,54 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     syncBandwidthConcurrencyRange();
     bandwidthAutoDelete.checked = settings.bandwidthAutoDeleteLowSpeedNodes;
     bandwidthThreshold.value = String(settings.bandwidthAutoDeleteThresholdMbps);
+    entryIpEnabled.checked = settings.entryIpEnabled;
+    entryRegionEnabled.checked = settings.entryRegionEnabled;
+    entryTypeEnabled.checked = settings.entryTypeEnabled;
+    entryDnsMode.value = settings.entryDnsMode;
+    entryDnsUrl.value = settings.entryDnsUrl;
+    entryDnsUrlRow.hidden = settings.entryDnsMode !== "custom";
+    entryIpFamily.value = settings.entryIpFamily;
+    entryDnsTimeout.value = String(settings.entryDnsTimeoutMs);
+    entryDnsRetries.value = String(settings.entryDnsRetries);
     entryConcurrency.value = String(settings.entryConcurrency);
     entryMode.value = settings.entryConcurrencyMode;
+    syncEntryConcurrencyRange();
+    exitIpEnabled.checked = settings.exitIpEnabled;
+    exitRegionEnabled.checked = settings.exitRegionEnabled;
+    exitTypeEnabled.checked = settings.exitTypeEnabled;
+    exitIpFamily.value = settings.exitIpFamily;
+    renderExitIpSourceOptions(settings.exitIpSources);
+    exitIpTimeout.value = String(settings.exitIpTimeoutMs);
+    exitIpRetries.value = String(settings.exitIpRetries);
     exitConcurrency.value = String(settings.exitConcurrency);
     exitMode.value = settings.exitConcurrencyMode;
+    syncExitConcurrencyRange();
     unlockConcurrency.value = String(settings.unlockConcurrency);
     unlockMode.value = settings.unlockConcurrencyMode;
     unlockRequestConcurrency.value = String(settings.unlockRequestConcurrency);
     unlockServiceTimeout.value = String(settings.unlockServiceTimeoutMs);
     renderOneClickTestKinds(settings.oneClickTestKinds);
     renderUnlockServices(settings.unlockTestIds);
+    updateDetectionAvailability(settings);
   };
 
   applySettings(loadSettings());
   bandwidthMode.addEventListener("change", syncBandwidthConcurrencyRange);
+  entryMode.addEventListener("change", syncEntryConcurrencyRange);
+  exitMode.addEventListener("change", syncExitConcurrencyRange);
+  entryDnsMode.addEventListener("change", () => {
+    entryDnsUrlRow.hidden = entryDnsMode.value !== "custom";
+  });
+  for (const input of [entryIpEnabled, entryRegionEnabled, entryTypeEnabled, exitIpEnabled, exitRegionEnabled, exitTypeEnabled]) {
+    input.addEventListener("click", event => event.stopPropagation());
+    input.addEventListener("change", persist);
+  }
   for (const input of [
     tcpingTimeout, tcpingConcurrency, tcpingMode, tcpingAutoDelete,
     url204, url204Backup, url204Warmup, url204Measurement, url204Concurrency, url204Mode, url204AutoDelete,
     bandwidthUrl, bandwidthDuration, bandwidthStreams, bandwidthConcurrency, bandwidthMode, bandwidthAutoDelete, bandwidthThreshold,
-    entryConcurrency, entryMode, exitConcurrency, exitMode,
+    entryDnsMode, entryDnsUrl, entryIpFamily, entryDnsTimeout, entryDnsRetries, entryConcurrency, entryMode,
+    exitIpFamily, exitIpTimeout, exitIpRetries, exitConcurrency, exitMode,
     unlockConcurrency, unlockMode, unlockRequestConcurrency, unlockServiceTimeout,
   ]) {
     input.addEventListener("change", persist);
@@ -600,6 +803,12 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     const entries = options.getEntries();
     if (entries.length === 0) return false;
     const settings = settingsOverride ?? readSettings();
+    const detectionEnabled = kind === "entry"
+      ? settings.entryIpEnabled || settings.entryRegionEnabled || settings.entryTypeEnabled
+      : kind === "exit"
+        ? settings.exitIpEnabled || settings.exitRegionEnabled || settings.exitTypeEnabled
+        : true;
+    if (!detectionEnabled) return false;
     if (!settingsOverride) saveSettings(settings);
     options.onTestStarted(kind);
     const concurrency = kind === "tcping"
@@ -656,10 +865,23 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
                   : kind === "bandwidth"
                     ? settings.bandwidthDurationMs + 6_000
                     : kind === "entry"
-                      ? 5_000
+                      ? settings.entryDnsTimeoutMs
                       : kind === "exit"
-                        ? 10_000
+                        ? settings.exitIpTimeoutMs
                         : settings.unlockServiceTimeoutMs,
+              entryDnsUrl: kind !== "entry" || settings.entryDnsMode === "system"
+                ? null
+                : settings.entryDnsMode === "cloudflare"
+                  ? "https://cloudflare-dns.com/dns-query"
+                  : settings.entryDnsMode === "google"
+                    ? "https://dns.google/resolve"
+                    : settings.entryDnsUrl,
+              entryIpFamily: kind === "entry" ? settings.entryIpFamily : null,
+              entryDnsRetries: kind === "entry" ? settings.entryDnsRetries : null,
+              detectCdnType: kind === "entry" ? settings.entryTypeEnabled : kind === "exit" ? settings.exitTypeEnabled : null,
+              exitIpFamily: kind === "exit" ? settings.exitIpFamily : null,
+              exitIpSources: kind === "exit" ? settings.exitIpSources : null,
+              exitIpRetries: kind === "exit" ? settings.exitIpRetries : null,
               warmupTimeoutMs: kind === "url204" ? settings.url204WarmupTimeoutMs : null,
               measurementTimeoutMs: kind === "url204" ? settings.url204MeasurementTimeoutMs : null,
               durationMs: kind === "bandwidth" ? settings.bandwidthDurationMs : null,
@@ -723,7 +945,11 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
     void (async () => {
       if (running) return;
       const settings = readSettings();
-      const selectedKinds = settings.oneClickTestKinds;
+      const selectedKinds = settings.oneClickTestKinds.filter(kind => kind === "entry"
+        ? settings.entryIpEnabled || settings.entryRegionEnabled || settings.entryTypeEnabled
+        : kind === "exit"
+          ? settings.exitIpEnabled || settings.exitRegionEnabled || settings.exitTypeEnabled
+          : true);
       if (!selectedKinds.length || options.getEntries().length === 0) return;
       saveSettings(settings);
       let completedKinds = 0;
@@ -741,6 +967,17 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
 
   return {
     getResult,
+    getLinkDetectionSettings: () => {
+      const settings = readSettings();
+      return {
+        entryIpEnabled: settings.entryIpEnabled,
+        entryRegionEnabled: settings.entryRegionEnabled,
+        entryTypeEnabled: settings.entryTypeEnabled,
+        exitIpEnabled: settings.exitIpEnabled,
+        exitRegionEnabled: settings.exitRegionEnabled,
+        exitTypeEnabled: settings.exitTypeEnabled,
+      };
+    },
     clearResults: () => resultMap.clear(),
     getUnlockServices: () => readSettings().unlockTestIds
       .map(id => UNLOCK_SERVICES.find(service => service.id === id))
