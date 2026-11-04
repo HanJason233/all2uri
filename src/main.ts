@@ -12,6 +12,7 @@ import {
   refreshNodeTestButtons,
   type NodeTestController,
   type NodeTestKind,
+  type NodeTestResponse,
   type UnlockServiceDefinition,
 } from "./node-test.ts";
 import {
@@ -157,14 +158,17 @@ const OUTPUT_COLUMN_DEFAULT_WIDTHS: Record<string, number> = {
   protocol: 100,
   server: 190,
   port: 72,
-  region: 150,
+  entryIp: 190,
+  entryRegion: 130,
+  entryType: 88,
+  exitIp: 170,
+  exitRegion: 130,
+  exitType: 88,
   rtt: 110,
   http: 120,
   average: 140,
   peak: 140,
   perSecond: 120,
-  entry: 120,
-  exit: 120,
   ipRisk: 100,
 };
 const OUTPUT_COLUMN_MIN_WIDTH = 36;
@@ -345,6 +349,7 @@ function updateRegionLookupMethods(methods: RegionLookupMethod[]) {
   saveRegionLookupMethods();
   renderRegionLookupSettings();
   if (!running && outputEntries.length > 0) void enrichOutputRegions();
+  queueDetectedIpRegionLookups();
 }
 
 function renderRegionLookupSettings() {
@@ -437,6 +442,7 @@ async function chooseGeoIpDatabase() {
     }
     renderRegionLookupSettings();
     if (!running && outputEntries.length > 0) void enrichOutputRegions();
+    queueDetectedIpRegionLookups();
   } catch (error) {
     showToast(failureFrom(error).message || "选择 GeoIP 数据库失败", true);
   }
@@ -451,6 +457,7 @@ function clearGeoIpDatabase() {
   }
   renderRegionLookupSettings();
   if (!running && outputEntries.length > 0) void enrichOutputRegions();
+  queueDetectedIpRegionLookups();
 }
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -604,6 +611,14 @@ let regionLookupConcurrency = loadRegionLookupConcurrency();
 let geoIpDatabasePath = loadGeoIpDatabasePath();
 let regionLookupState: "idle" | "running" | "done" | "error" = "idle";
 let regionLookupRunId = 0;
+let detectedIpRegionCodes = new Map<string, string | null>();
+const queuedDetectedIpRegions = new Set<string>();
+const pendingDetectedIpRegions = new Set<string>();
+const reportedDetectedIpRegionErrors = new Set<RegionLookupMethod>();
+let detectedIpRegionLookupTask: Promise<void> | null = null;
+let detectedIpRegionLookupTimer: number | null = null;
+let detectedIpRegionLookupSignature = "";
+let detectedIpRegionLookupRunId = 0;
 let draftFilterProtocols: ProxyProtocol[] = [...outputFilter.protocols];
 let draftFilterProtocolsEnabled = outputFilter.protocolsEnabled;
 let draftFilterCountries: string[] = [...outputFilter.countries];
@@ -1679,36 +1694,63 @@ function speedSamplesCell(entryId: string): HTMLTableCellElement {
   return cell;
 }
 
-function cdnProviderLabel(provider: string | undefined): string {
-  if (!provider) return "\u975e CDN";
-  return provider === "Cloudflare" ? "CF" : provider;
-}
-
 function cdnRenameLabel(provider: string | undefined, kind: "entry" | "exit"): string {
   const role = kind === "entry" ? "\u5165\u53e3" : "\u51fa\u53e3";
-  return `${provider ? (provider === "Cloudflare" ? "CF" : provider) : "\u975eCDN"}${role}`;
+  return `${provider === "Cloudflare" ? "CF" : "\u975eCF"}${role}`;
 }
 
-function cdnDetectionCell(entry: CategorizedOutput, kind: "entry" | "exit"): HTMLTableCellElement {
+function detectionIps(result: NodeTestResponse | undefined, kind: "entry" | "exit"): string[] {
+  const addresses = kind === "entry" ? result?.entryIps ?? [] : result?.exitIp ? [result.exitIp] : [];
+  return [...new Set(addresses.map(address => address.trim()).filter(Boolean))];
+}
+
+function detectionIpCell(entry: CategorizedOutput, kind: "entry" | "exit"): HTMLTableCellElement {
   const state = testCellState(entry.id, kind);
-  const result = state.result;
-  const detected = state.state === "done" && result?.success === true;
-  const label = detected ? cdnProviderLabel(result?.cdnProvider) : "\u2014";
-  const stateLabel = state.state === "running" ? "\u68c0\u6d4b\u4e2d" : state.state === "error" ? "\u5931\u8d25" : label;
-  const cell = textCell(stateLabel, `output-table-result-cell is-${state.state}`);
-  cell.title = result
-    ? [
-      result.cdnProvider ? `${result.cdnProvider} CDN` : "\u975e CDN",
-      kind === "entry" && result.entryIps?.length ? `\u5165\u53e3 ${result.entryIps.join(", ")}` : "",
-      kind === "exit" && result.exitIp ? `\u51fa\u53e3 ${result.exitIp}` : "",
-    ].filter(Boolean).join(" \u00b7 ")
-    : state.title;
-  return cell;
+  if (state.state === "running") return textCell("\u68c0\u6d4b\u4e2d", "output-table-ip is-left output-table-result-cell is-running", state.title);
+  if (state.state === "error") return textCell("\u5931\u8d25", "output-table-ip is-left output-table-result-cell is-error", state.title);
+  const addresses = detectionIps(state.result, kind);
+  return textCell(addresses.join(", ") || (state.state === "done" ? "\u672a\u77e5" : "\u2014"), "output-table-ip is-left", addresses.join("\n") || state.title);
 }
 
-function regionCell(entry: CategorizedOutput): HTMLTableCellElement {
-  const label = entry.countryCode ? countryNameForCode(entry.countryCode) : regionLookupState === "running" ? "查询中" : "未知";
-  return textCell(label, "output-table-text-cell", entry.countryCode ? `${label} (${entry.countryCode})` : label);
+function detectionRegionCell(entry: CategorizedOutput, kind: "entry" | "exit"): HTMLTableCellElement {
+  const state = testCellState(entry.id, kind);
+  if (state.state === "running") return textCell("\u67e5\u8be2\u4e2d", "output-table-result-cell is-running", state.title);
+  if (state.state === "error") return textCell("\u5931\u8d25", "output-table-result-cell is-error", state.title);
+
+  const addresses = detectionIps(state.result, kind);
+  if (state.state !== "done" || addresses.length === 0) {
+    return textCell(state.state === "done" ? "\u672a\u77e5" : "\u2014", "output-table-text-cell", state.title);
+  }
+
+  const pending = addresses.some(address => pendingDetectedIpRegions.has(address));
+  const regionNames = [...new Set(addresses
+    .map(address => detectedIpRegionCodes.get(address))
+    .filter((code): code is string => Boolean(code) && code !== UNKNOWN_REGION_CODE)
+    .map(countryNameForCode))];
+  const label = pending
+    ? regionNames.length > 0 ? `${regionNames.join("\u3001")}（\u67e5\u8be2\u4e2d）` : "\u67e5\u8be2\u4e2d"
+    : regionNames.join("\u3001") || "\u672a\u77e5";
+  const title = addresses.map(address => {
+    const code = detectedIpRegionCodes.get(address);
+    const region = pendingDetectedIpRegions.has(address) ? "\u67e5\u8be2\u4e2d" : code ? countryNameForCode(code) : "\u672a\u77e5";
+    return `${address}\uff1a${region}`;
+  }).join("\n");
+  return textCell(label, "output-table-text-cell", title);
+}
+
+// 当前网段检测只判断 Cloudflare，因此类型列只标记 CF 或非 CF。
+function detectionTypeCell(entry: CategorizedOutput, kind: "entry" | "exit"): HTMLTableCellElement {
+  const state = testCellState(entry.id, kind);
+  let label = "\u2014";
+  let title = state.title;
+  if (state.state === "running") label = "\u68c0\u6d4b\u4e2d";
+  else if (state.state === "error") label = "\u5931\u8d25";
+  else if (state.state === "done") {
+    const isCloudflare = state.result?.cdnProvider === "Cloudflare";
+    label = isCloudflare ? "CF" : "\u975eCF";
+    title = isCloudflare ? "Cloudflare" : "\u672a\u68c0\u6d4b\u5230 Cloudflare";
+  }
+  return textCell(label, `output-table-result-cell is-${state.state}`, title);
 }
 
 function unlockResultCell(entryId: string, serviceId: string): HTMLTableCellElement {
@@ -1833,11 +1875,18 @@ function outputTableColumns(): OutputTableColumn[] {
       entry => textCell(entry.server || "—", "output-table-ip"), "is-left"),
     makeColumn("port", "端口", OUTPUT_COLUMN_DEFAULT_WIDTHS.port,
       entry => textCell(`${entry.port}`, "output-table-port"), "is-centered"),
-    makeColumn("region", "节点地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.region, regionCell, "is-centered"),
-    makeColumn("entry", "入口检测", OUTPUT_COLUMN_DEFAULT_WIDTHS.entry,
-      entry => cdnDetectionCell(entry, "entry"), "is-centered"),
-    makeColumn("exit", "出口检测", OUTPUT_COLUMN_DEFAULT_WIDTHS.exit,
-      entry => cdnDetectionCell(entry, "exit"), "is-centered"),
+    makeColumn("entryIp", "入口IP", OUTPUT_COLUMN_DEFAULT_WIDTHS.entryIp,
+      entry => detectionIpCell(entry, "entry"), "is-left"),
+    makeColumn("entryRegion", "入口地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.entryRegion,
+      entry => detectionRegionCell(entry, "entry"), "is-centered"),
+    makeColumn("entryType", "入口类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.entryType,
+      entry => detectionTypeCell(entry, "entry"), "is-centered"),
+    makeColumn("exitIp", "出口IP", OUTPUT_COLUMN_DEFAULT_WIDTHS.exitIp,
+      entry => detectionIpCell(entry, "exit"), "is-left"),
+    makeColumn("exitRegion", "出口地区", OUTPUT_COLUMN_DEFAULT_WIDTHS.exitRegion,
+      entry => detectionRegionCell(entry, "exit"), "is-centered"),
+    makeColumn("exitType", "出口类型", OUTPUT_COLUMN_DEFAULT_WIDTHS.exitType,
+      entry => detectionTypeCell(entry, "exit"), "is-centered"),
     ...measurements,
     makeColumn("average", "平均速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.average,
       entry => speedCell(entry.id, "downloadMbps"), "is-centered"),
@@ -2263,6 +2312,109 @@ async function enrichOutputRegions() {
   if (runId !== regionLookupRunId) return;
   regionLookupState = lookupFailed ? "error" : "done";
   renderOutputFilter(outputFilter.countriesEnabled);
+}
+
+// 复用地区设置批量查询检测得到的 IP，并按 IP 缓存入口和出口的地区结果。
+async function lookupQueuedDetectedIpRegions(
+  runId: number,
+  methods: Array<Exclude<RegionLookupMethod, "NODE_NAME">>,
+) {
+  while (runId === detectedIpRegionLookupRunId && queuedDetectedIpRegions.size > 0) {
+    const addresses = [...queuedDetectedIpRegions].slice(0, 128);
+    for (const address of addresses) queuedDetectedIpRegions.delete(address);
+    const unresolved = new Set(addresses);
+
+    for (const method of methods) {
+      if (runId !== detectedIpRegionLookupRunId) return;
+      if (unresolved.size === 0) break;
+      try {
+        const results = await invoke<Array<{ id: string; countryCode: string | null }>>("lookup_node_regions", {
+          nodes: [...unresolved].map(address => ({ id: address, server: address })),
+          lookupMethod: method,
+          geoIpDatabasePath: method === "LOCAL_GEOIP" ? geoIpDatabasePath : null,
+          concurrency: regionLookupConcurrency,
+        });
+        if (runId !== detectedIpRegionLookupRunId) return;
+        const resultById = new Map(results.map(result => [result.id, normalizeRegionCode(result.countryCode)]));
+        for (const address of unresolved) {
+          const countryCode = resultById.get(address);
+          if (!countryCode) continue;
+          detectedIpRegionCodes.set(address, countryCode);
+          unresolved.delete(address);
+        }
+      } catch (error) {
+        if (runId !== detectedIpRegionLookupRunId) return;
+        if (!reportedDetectedIpRegionErrors.has(method)) {
+          reportedDetectedIpRegionErrors.add(method);
+          const methodLabel = method === "LOCAL_GEOIP" ? "本地 GeoIP" : "远程地区 API";
+          appendLog(`${methodLabel}查询入口/出口 IP 地区失败：${failureFrom(error).message}`, true);
+        }
+      }
+    }
+
+    if (runId !== detectedIpRegionLookupRunId) return;
+    for (const address of addresses) {
+      if (!detectedIpRegionCodes.has(address)) detectedIpRegionCodes.set(address, null);
+      pendingDetectedIpRegions.delete(address);
+    }
+    scheduleOutputFilterRender();
+  }
+}
+
+function scheduleDetectedIpRegionLookup() {
+  if (queuedDetectedIpRegions.size === 0 || detectedIpRegionLookupTask || detectedIpRegionLookupTimer !== null) return;
+  detectedIpRegionLookupTimer = window.setTimeout(() => {
+    detectedIpRegionLookupTimer = null;
+    if (queuedDetectedIpRegions.size === 0 || detectedIpRegionLookupTask) return;
+    const methods = regionLookupMethods.filter(
+      (method): method is Exclude<RegionLookupMethod, "NODE_NAME"> => method !== "NODE_NAME",
+    );
+    if (methods.length === 0) return;
+
+    const runId = detectedIpRegionLookupRunId;
+    detectedIpRegionLookupTask = lookupQueuedDetectedIpRegions(runId, methods)
+      .catch(error => appendLog(`入口/出口 IP 地区查询失败：${failureFrom(error).message}`, true))
+      .finally(() => {
+        detectedIpRegionLookupTask = null;
+        scheduleDetectedIpRegionLookup();
+      });
+  }, 100);
+}
+
+function queueDetectedIpRegionLookups(changedEntryId?: string, changedKind?: NodeTestKind) {
+  const methods = regionLookupMethods.filter(
+    (method): method is Exclude<RegionLookupMethod, "NODE_NAME"> => method !== "NODE_NAME",
+  );
+  const signature = JSON.stringify([methods, methods.includes("LOCAL_GEOIP") ? geoIpDatabasePath : ""]);
+  if (signature !== detectedIpRegionLookupSignature) {
+    detectedIpRegionLookupSignature = signature;
+    detectedIpRegionLookupRunId += 1;
+    detectedIpRegionCodes.clear();
+    queuedDetectedIpRegions.clear();
+    pendingDetectedIpRegions.clear();
+  }
+  if (methods.length === 0 || !nodeTestController) return;
+
+  const candidates: Array<{ entryId: string; kind: "entry" | "exit" }> = [];
+  if (changedEntryId && (changedKind === "entry" || changedKind === "exit")) {
+    candidates.push({ entryId: changedEntryId, kind: changedKind });
+  } else if (!changedEntryId) {
+    for (const entry of outputEntries) {
+      candidates.push({ entryId: entry.id, kind: "entry" }, { entryId: entry.id, kind: "exit" });
+    }
+  }
+
+  for (const { entryId, kind } of candidates) {
+    const state = nodeTestController.getResult(entryId, kind);
+    if (state?.state !== "done" || !state.result?.success) continue;
+    for (const address of detectionIps(state.result, kind)) {
+      if (detectedIpRegionCodes.has(address) || pendingDetectedIpRegions.has(address)) continue;
+      queuedDetectedIpRegions.add(address);
+      pendingDetectedIpRegions.add(address);
+    }
+  }
+
+  scheduleDetectedIpRegionLookup();
 }
 
 function aggregateResults(result: ConversionResult, logDiagnostics = true) {
@@ -2978,7 +3130,10 @@ function bindEvents() {
       protocol: entry.protocol,
       node: entry.node,
     })),
-    onResultsChanged: scheduleOutputFilterRender,
+    onResultsChanged: (entryId, kind) => {
+      scheduleOutputFilterRender();
+      queueDetectedIpRegionLookups(entryId, kind);
+    },
     onDeleteEntries: removeOutputEntries,
     onTestStarted: scheduleOutputFilterRender,
     onTestProgress: updateNodeTestProgress,

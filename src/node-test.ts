@@ -99,7 +99,7 @@ export interface NodeTestController {
 
 interface NodeTestUiOptions {
   getEntries: () => NodeTestEntry[];
-  onResultsChanged: () => void;
+  onResultsChanged: (entryId?: string, kind?: NodeTestKind) => void;
   onDeleteEntries: (entryIds: string[]) => void;
   onTestStarted: (kind: NodeTestKind) => void;
   onTestProgress: (done: number, total: number, label: string) => void;
@@ -360,7 +360,7 @@ export function nodeTestResultText(state: NodeTestResultState | undefined, kind:
     }
     case "entry":
     case "exit":
-      return result.cdnProvider ?? "\u975e CDN";
+      return result.cdnProvider === "Cloudflare" ? "CF" : "\u975eCF";
     case "unlock": {
       const services = result.unlock ?? [];
       const unlocked = services.filter(item => item.state === "unlocked").length;
@@ -398,7 +398,7 @@ export function nodeTestResultTitle(state: NodeTestResultState | undefined, kind
     case "entry":
     case "exit": {
       const role = kind === "entry" ? "\u5165\u53e3" : "\u51fa\u53e3";
-      const classification = result.cdnProvider ? `${result.cdnProvider} CDN` : "\u975e CDN";
+      const classification = result.cdnProvider === "Cloudflare" ? "Cloudflare" : "\u975e Cloudflare";
       const addresses = kind === "entry"
         ? result.entryIps?.length ? `\nIP\uff1a${result.entryIps.join(", ")}` : ""
         : result.exitIp ? `\nIP\uff1a${result.exitIp}` : "";
@@ -681,7 +681,7 @@ export function initNodeTestUi(options: NodeTestUiOptions): NodeTestController {
         }
         completed++;
         options.onTestProgress(completed, entries.length, progressLabel);
-        options.onResultsChanged();
+        options.onResultsChanged(entry.id, kind);
       }
     };
 
