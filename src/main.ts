@@ -79,6 +79,7 @@ interface BatchRenameSettings {
 interface OutputTableColumn {
   key: string;
   label: string;
+  settingsLabel?: string;
   width: number;
   className?: string;
   renderCell: (entry: CategorizedOutput, index: number) => HTMLTableCellElement;
@@ -134,6 +135,7 @@ const OUTPUT_PROTOCOLS: Array<{ value: ProxyProtocol; label: string }> = [
 ];
 const OUTPUT_FILTER_STORAGE_KEY = "all2uri.output-filter";
 const OUTPUT_COLUMN_WIDTHS_STORAGE_KEY = "all2uri.output-table-column-widths.v2";
+const OUTPUT_COLUMN_VISIBILITY_STORAGE_KEY = "all2uri.output-table-column-visibility.v1";
 const REGION_LOOKUP_METHODS_STORAGE_KEY = "all2uri.region-lookup-methods";
 const REGION_LOOKUP_CONCURRENCY_STORAGE_KEY = "all2uri.region-lookup-concurrency";
 const GEOIP_DATABASE_PATH_STORAGE_KEY = "all2uri.geoip-database-path";
@@ -312,6 +314,21 @@ function loadOutputColumnWidths(): Record<string, number> {
   return {};
 }
 
+function loadOutputColumnVisibility(): Record<string, boolean> {
+  try {
+    const storedVisibility = window.localStorage.getItem(OUTPUT_COLUMN_VISIBILITY_STORAGE_KEY);
+    if (storedVisibility !== null) {
+      const parsed: unknown = JSON.parse(storedVisibility);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+      }
+    }
+  } catch {
+    return {};
+  }
+  return {};
+}
+
 function saveOutputFilter() {
   try {
     window.localStorage.setItem(OUTPUT_FILTER_STORAGE_KEY, JSON.stringify(outputFilter));
@@ -325,6 +342,14 @@ function saveOutputColumnWidths() {
     window.localStorage.setItem(OUTPUT_COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(outputColumnWidths));
   } catch {
     // 列宽仍可在当前会话中调整；存储不可用时忽略持久化错误。
+  }
+}
+
+function saveOutputColumnVisibility() {
+  try {
+    window.localStorage.setItem(OUTPUT_COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(outputColumnVisibility));
+  } catch {
+    // 列显示设置仍可在当前会话中使用；存储不可用时忽略持久化错误。
   }
 }
 
@@ -475,6 +500,7 @@ const dom = {
   settingsContent: getElement<HTMLDivElement>("settings-content"),
   settingsTabs: Array.from(document.querySelectorAll<HTMLButtonElement>("[data-settings-tab]")),
   settingsPanes: Array.from(document.querySelectorAll<HTMLElement>("[data-settings-pane]")),
+  outputColumnVisibilityGroups: getElement<HTMLDivElement>("output-column-visibility-groups"),
   importClipboardButton: getElement<HTMLButtonElement>("import-clipboard-button"),
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
   importQrButton: getElement<HTMLButtonElement>("import-qr-button"),
@@ -566,6 +592,7 @@ function selectSettingsCategory(category: string) {
   for (const pane of dom.settingsPanes) {
     pane.hidden = pane.dataset.settingsPane !== category;
   }
+  if (category === "list") renderOutputColumnVisibilityOptions();
   dom.settingsContent.scrollTop = 0;
 }
 
@@ -592,6 +619,7 @@ const DEFAULT_PANEL_RATIOS = [0.3, 0.7];
 let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
 let outputColumnWidths = loadOutputColumnWidths();
+let outputColumnVisibility = loadOutputColumnVisibility();
 let outputColumnResizeState: OutputColumnResizeState | null = null;
 let renderedOutputColumns: OutputTableColumn[] = [];
 let sourceResults: SourceResult[] = [];
@@ -1522,6 +1550,72 @@ function renderOutputFilterSettingsOptions() {
   updateOutputFilterSettingsSummaries();
 }
 
+type OutputColumnGroupId = "basic" | "link" | "performance" | "ipQuality" | "unlock";
+
+const OUTPUT_COLUMN_GROUPS: Array<{ id: OutputColumnGroupId; label: string }> = [
+  { id: "basic", label: "基础信息" },
+  { id: "link", label: "链路信息" },
+  { id: "performance", label: "性能信息" },
+  { id: "ipQuality", label: "IP 质量" },
+  { id: "unlock", label: "解锁信息" },
+];
+
+const OUTPUT_COLUMN_GROUP_BY_KEY = new Map<string, OutputColumnGroupId>([
+  ...["index", "name", "protocol", "server", "port"].map(key => [key, "basic"] as const),
+  ...["entryIp", "entryRegion", "entryType", "exitIp", "exitRegion", "exitType"].map(key => [key, "link"] as const),
+  ...["rtt", "http", "average", "peak", "perSecond"].map(key => [key, "performance"] as const),
+  ["ipRisk", "ipQuality"],
+]);
+
+function outputColumnGroupForKey(key: string): OutputColumnGroupId {
+  if (key.startsWith("service:")) return "unlock";
+  return OUTPUT_COLUMN_GROUP_BY_KEY.get(key) ?? "basic";
+}
+
+function renderOutputColumnVisibilityOptions() {
+  const columns = outputTableColumns();
+  const columnsByGroup = new Map<OutputColumnGroupId, OutputTableColumn[]>(
+    OUTPUT_COLUMN_GROUPS.map(group => [group.id, []]),
+  );
+  for (const column of columns) columnsByGroup.get(outputColumnGroupForKey(column.key))?.push(column);
+
+  const groups = OUTPUT_COLUMN_GROUPS.flatMap(group => {
+    const groupedColumns = columnsByGroup.get(group.id) ?? [];
+    if (groupedColumns.length === 0) return [];
+
+    const section = document.createElement("section");
+    section.className = "output-column-visibility-group";
+    const heading = document.createElement("h4");
+    heading.textContent = group.label;
+    const options = document.createElement("div");
+    options.className = "output-column-visibility-options";
+    options.setAttribute("role", "group");
+    options.setAttribute("aria-label", group.label);
+
+    for (const column of groupedColumns) {
+      const option = document.createElement("label");
+      option.className = "test-service-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = outputColumnVisibility[column.key] !== false;
+      checkbox.setAttribute("aria-label", `显示${column.settingsLabel ?? column.label}列`);
+      checkbox.addEventListener("change", () => {
+        outputColumnVisibility[column.key] = checkbox.checked;
+        saveOutputColumnVisibility();
+        renderOutputFilter();
+      });
+      const name = document.createElement("span");
+      name.textContent = column.settingsLabel ?? column.label;
+      option.append(checkbox, name);
+      options.append(option);
+    }
+
+    section.append(heading, options);
+    return [section];
+  });
+  dom.outputColumnVisibilityGroups.replaceChildren(...groups);
+}
+
 function applyOutputFilter() {
   outputFilter = {
     protocolsEnabled: draftFilterProtocolsEnabled,
@@ -1894,10 +1988,10 @@ function outputTableColumns(): OutputTableColumn[] {
       entry => speedCell(entry.id, "downloadMaxMbps"), "is-centered"),
     makeColumn("perSecond", "每秒速度", OUTPUT_COLUMN_DEFAULT_WIDTHS.perSecond,
       entry => speedSamplesCell(entry.id), "is-centered"),
-    ...leadingServices.map(service => serviceColumn(service)),
-    ...additionalServices.map(service => serviceColumn(service)),
     makeColumn("ipRisk", "IP 风险", OUTPUT_COLUMN_DEFAULT_WIDTHS.ipRisk,
       entry => ipRiskCell(entry.id), "is-centered", entries => ipRiskSummaryCell(entries)),
+    ...leadingServices.map(service => serviceColumn(service)),
+    ...additionalServices.map(service => serviceColumn(service)),
   ];
 }
 
@@ -1922,7 +2016,7 @@ function serviceColumn(service: UnlockServiceDefinition): OutputTableColumn {
   };
   const label = displayNames[service.id] ?? service.name;
   const width = Math.max(104, Math.min(160, label.length * 9 + 24));
-  return makeColumn(`service:${service.id}`, label, width,
+  return { ...makeColumn(`service:${service.id}`, label, width,
     entry => unlockResultCell(entry.id, service.id), "is-centered", entries => {
       const tested = entries.map(entry => nodeTestController?.getResult(entry.id, "unlock"))
         .filter((state): state is NonNullable<ReturnType<NodeTestController["getResult"]>> => state?.state === "done" && state.result?.success === true)
@@ -1932,11 +2026,11 @@ function serviceColumn(service: UnlockServiceDefinition): OutputTableColumn {
       const unlocked = tested.filter(item => item.state === "unlocked").length;
       const percent = Math.round(unlocked / tested.length * 100);
       return textCell(`${percent}%`, "output-table-summary-cell is-summary-unlocked", `${unlocked}/${tested.length} 个节点支持 ${service.name}`);
-    });
+    }), settingsLabel: service.name };
 }
 
 function renderOutputTableHeader(): boolean {
-  const columns = outputTableColumns();
+  const columns = outputTableColumns().filter(column => outputColumnVisibility[column.key] !== false);
   const signature = JSON.stringify(columns.map(({ key, label, width }) => [key, label, width]));
   if (signature === renderedOutputColumnSignature) return false;
 

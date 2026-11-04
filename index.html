@@ -146,6 +146,9 @@
             <button class="settings-nav-button" id="settings-tab-output" type="button" role="tab" aria-controls="settings-pane-output" aria-selected="false" data-settings-tab="output" tabindex="-1">
               <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 9h3v10H5V9zm5-4h3v14h-3V5zm5 7h3v7h-3v-7zm5-5h3v12h-3V7z" /></svg>输出</span>
             </button>
+            <button class="settings-nav-button" id="settings-tab-list" type="button" role="tab" aria-controls="settings-pane-list" aria-selected="false" data-settings-tab="list" tabindex="-1">
+              <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h2v2H4V5zm4 0h12v2H8V5zM4 11h2v2H4v-2zm4 0h12v2H8v-2zm-4 6h2v2H4v-2zm4 0h12v2H8v-2z" /></svg>列表</span>
+            </button>
             <button class="settings-nav-button" id="settings-tab-detection" type="button" role="tab" aria-controls="settings-pane-detection" aria-selected="false" data-settings-tab="detection" tabindex="-1">
               <span class="settings-nav-label"><svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2 4 5v6c0 5.2 3.4 9.8 8 11 4.6-1.2 8-5.8 8-11V5l-8-3zm0 3.2 5 1.9V11c0 3.7-2.1 7.1-5 8.3-2.9-1.2-5-4.6-5-8.3V7.1l5-1.9zm-1 9.4-2-2-1.4 1.4L11 17l5.4-5.4L15 10.2l-4 4.4z" /></svg>节点检测</span>
             </button>
@@ -293,6 +296,18 @@
                   </div>
                 </section>
 
+              </div>
+            </section>
+            <section class="settings-pane" id="settings-pane-list" role="tabpanel" aria-labelledby="settings-tab-list" data-settings-pane="list" tabindex="0" hidden>
+              <div class="settings-pane-heading">
+                <h2>列表</h2>
+              </div>
+              <div class="settings-pane-sections">
+                <section class="settings-section" aria-labelledby="settings-list-columns-title">
+                  <h3 id="settings-list-columns-title">列显示</h3>
+                  <p class="settings-description">选择结果列表中显示的列，各列可以单独设置。</p>
+                  <div id="output-column-visibility-groups" class="output-column-visibility-groups"></div>
+                </section>
               </div>
             </section>
             <section class="settings-pane" id="settings-pane-detection" role="tabpanel" aria-labelledby="settings-tab-detection" data-settings-pane="detection" tabindex="0" hidden>

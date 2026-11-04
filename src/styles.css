@@ -1975,6 +1975,45 @@ body.resizing-output-columns * {
   margin-top: 8px;
 }
 
+.settings-description {
+  margin: -2px 0 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.output-column-visibility-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.output-column-visibility-group {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-solid);
+}
+
+.output-column-visibility-group h4 {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.output-column-visibility-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+}
+
+@media (max-width: 820px) {
+  .output-column-visibility-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .test-service-category {
   grid-column: 1 / -1;
   margin-top: 5px;
