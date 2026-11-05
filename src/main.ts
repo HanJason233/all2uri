@@ -810,7 +810,6 @@ const dom = {
   outputFilterRegionEnabled: getElement<HTMLInputElement>("output-filter-region-enabled"),
   outputFilterRegionOptions: getElement<HTMLDivElement>("output-filter-region-options"),
   outputFilterRegionSummary: getElement<HTMLSpanElement>("output-filter-region-summary"),
-  outputOverview: getElement<HTMLSpanElement>("output-overview"),
   nodeCount: getElement<HTMLElement>("node-count"),
   sourceCount: getElement<HTMLElement>("source-count"),
   duplicateCount: getElement<HTMLElement>("duplicate-count"),
@@ -915,9 +914,9 @@ interface OutputColumnResizeState {
   handle: HTMLElement;
 }
 
-const MIN_PANEL_WIDTH = 200;
+const MIN_PANEL_WIDTH = 280;
 const SPLITTER_WIDTH = 13;
-const DEFAULT_PANEL_RATIOS = [0.3, 0.7];
+const DEFAULT_PANEL_RATIOS = [0.72, 0.28];
 
 let panelRatios = [...DEFAULT_PANEL_RATIOS];
 let resizeState: ResizeState | null = null;
@@ -988,7 +987,13 @@ function showToast(message: string, error = false) {
 }
 
 function availableWorkspaceWidth(): number {
-  return Math.max(0, dom.workspace.getBoundingClientRect().width - dom.panelResizers.length * SPLITTER_WIDTH);
+  const columnGap = Number.parseFloat(getComputedStyle(dom.workspace).columnGap) || 0;
+  const gapsWidth = columnGap * Math.max(0, dom.workspace.children.length - 1);
+  return Math.max(0,
+    dom.workspace.getBoundingClientRect().width
+      - dom.panelResizers.length * SPLITTER_WIDTH
+      - gapsWidth,
+  );
 }
 
 function clampPanelRatios(ratios: number[], availableWidth: number): number[] {
@@ -2664,13 +2669,12 @@ function renderOutputFilter(updateSummary = true) {
   renderedOutputRowRange = { start: -1, end: -1 };
   renderOutputTableRows(true);
   dom.outputTableWrap.hidden = false;
-  dom.outputFilterCount.textContent = `${uris.length} 个节点 · ${formatBytes(outputBytes)}`;
 
   const regionStatus = regionLookupState === "running" ? " · 地区查询中" : "";
   const countText = isOutputFilterActive()
     ? `${uris.length} / ${outputUris.length} 个节点`
     : `${outputUris.length} 个节点`;
-  dom.outputOverview.textContent = `${countText}${regionStatus}`;
+  dom.outputFilterCount.textContent = `${countText} · ${formatBytes(outputBytes)}${regionStatus}`;
   updateOutputFilterSettingsSummaries();
   dom.entryRegionConcurrency.disabled = running || regionLookupState === "running";
   dom.exitRegionConcurrency.disabled = running || regionLookupState === "running";

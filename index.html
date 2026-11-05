@@ -13,86 +13,77 @@
     <div class="app-shell">
       <main class="main-content">
         <div class="workspace" id="workspace">
-          <section class="panel input-panel" id="input-panel" aria-labelledby="input-title">
-            <div class="panel-header">
-              <div class="panel-title-group">
-                <h2 id="input-title">输入</h2>
-              </div>
-              <div class="panel-header-actions">
-                <span class="panel-status" id="processing-status" data-state="idle" role="status" hidden></span>
-              </div>
-            </div>
-
-            <div class="textarea-wrap">
-              <textarea
-                id="subscription-urls"
-                class="url-input"
-                aria-label="订阅 / 节点内容"
-                rows="9"
-                spellcheck="false"
-                autocomplete="off"
-                placeholder="https://example.com/api/v1/client/subscribe?token=...&#10;vless://uuid@example.com:443#节点&#10;Clash YAML / sing-box / Xray JSON"
-              ></textarea>
-            </div>
-
-            <div class="input-source-actions" role="group" aria-label="输入来源">
-              <button class="secondary-button" id="import-clipboard-button" type="button">剪贴板</button>
-              <button class="secondary-button" id="import-file-button" type="button">文件</button>
-              <button class="secondary-button" id="import-qr-button" type="button">二维码</button>
-            </div>
-
-            <div class="validation-message" id="validation-message" hidden></div>
-
-            <div class="run-area">
-              <button class="primary-button" id="convert-button" type="button">
-                <span class="button-spinner" aria-hidden="true"></span>
-                <span class="button-label">开始转换</span>
-              </button>
+          <section class="panel output-panel" id="output-panel" aria-label="输出表格">
+            <div class="output-table-wrap" id="output-table-wrap">
+              <table class="output-table" id="output-table">
+                <colgroup id="output-table-columns"></colgroup>
+                <thead id="output-table-head"></thead>
+                <tbody id="output-table-body"></tbody>
+                <tfoot id="output-table-foot"></tfoot>
+              </table>
             </div>
           </section>
 
-          <div class="panel-resizer" data-resizer="0" role="separator" aria-orientation="vertical" aria-label="调整输入和输出版块宽度" title="拖动调整宽度，双击恢复均分" tabindex="0"></div>
+          <div class="panel-resizer" data-resizer="0" role="separator" aria-orientation="vertical" aria-label="调整输出表格和操作栏宽度" title="拖动调整宽度，双击恢复默认比例" tabindex="0"></div>
 
-          <section class="panel output-panel" id="output-panel" aria-labelledby="result-title">
-            <div class="panel-header">
-              <div class="panel-title-group">
-                <h2 id="result-title">输出</h2>
-                <div class="output-title-actions">
+          <aside class="panel operation-panel" id="operation-panel" aria-labelledby="operation-panel-title">
+            <div class="operation-panel-header">
+              <h2 id="operation-panel-title">操作栏</h2>
+              <div class="result-stats" aria-live="polite">
+                <span><strong id="node-count">0</strong> 节点</span>
+                <span><strong id="source-count">0</strong> 来源</span>
+                <span><strong id="duplicate-count">0</strong> 重复</span>
+              </div>
+            </div>
+
+            <div class="operation-panel-status">
+              <span id="output-filter-count" role="status" aria-live="polite">等待输出</span>
+              <span class="node-test-status" id="node-test-status" role="status" aria-live="polite"></span>
+              <span class="panel-status" id="processing-status" data-state="idle" role="status" hidden></span>
+            </div>
+
+            <div class="operation-panel-groups">
+              <section class="operation-panel-group operation-input-group" aria-labelledby="operation-input-title">
+                <h3 id="operation-input-title">输入</h3>
+                <div class="textarea-wrap">
+                  <textarea
+                    id="subscription-urls"
+                    class="url-input"
+                    aria-label="订阅 / 节点内容"
+                    rows="8"
+                    spellcheck="false"
+                    autocomplete="off"
+                    placeholder="https://example.com/api/v1/client/subscribe?token=...&#10;vless://uuid@example.com:443#节点&#10;Clash YAML / sing-box / Xray JSON"
+                  ></textarea>
+                </div>
+
+                <div class="input-source-actions" role="group" aria-label="输入来源">
+                  <button class="secondary-button" id="import-clipboard-button" type="button">剪贴板</button>
+                  <button class="secondary-button" id="import-file-button" type="button">文件</button>
+                  <button class="secondary-button" id="import-qr-button" type="button">二维码</button>
+                </div>
+
+                <div class="validation-message" id="validation-message" hidden></div>
+
+                <button class="primary-button operation-convert-button" id="convert-button" type="button">
+                  <span class="button-spinner" aria-hidden="true"></span>
+                  <span class="button-label">开始转换</span>
+                </button>
+              </section>
+
+              <section class="operation-panel-group" aria-labelledby="operation-list-title">
+                <h3 id="operation-list-title">列表操作</h3>
+                <div class="operation-button-grid">
                   <button class="secondary-button" id="output-column-auto-fit-button" type="button" title="根据当前表格内容自动调整列宽">自动调整列宽</button>
                   <button class="secondary-button" id="output-filter-apply-button" type="button">应用筛选</button>
+                  <button class="secondary-button" id="batch-rename-button" type="button" disabled title="按输出设置选择的字段重命名当前筛选节点">批量重命名</button>
                   <button class="secondary-button" id="settings-button" type="button" aria-haspopup="dialog" aria-controls="app-settings-dialog">设置</button>
                 </div>
-              </div>
-              <div class="panel-header-actions">
-                <div class="result-stats" aria-live="polite">
-                  <span><strong id="node-count">0</strong> 节点</span>
-                  <span><strong id="source-count">0</strong> 来源</span>
-                  <span><strong id="duplicate-count">0</strong> 重复</span>
-                </div>
-                <button class="secondary-button panel-settings-button" id="batch-rename-button" type="button" disabled title="按输出设置选择的字段重命名当前筛选节点">批量重命名</button>
-              </div>
-            </div>
+              </section>
 
-            <div class="output-filter-result">
-              <div class="output-filter-result-heading">
-                <span id="output-filter-count">0 个节点 · 0 B</span>
-              </div>
-              <div class="output-table-wrap" id="output-table-wrap">
-                <table class="output-table" id="output-table">
-                  <colgroup id="output-table-columns"></colgroup>
-                  <thead id="output-table-head"></thead>
-                  <tbody id="output-table-body"></tbody>
-                  <tfoot id="output-table-foot"></tfoot>
-                </table>
-              </div>
-            </div>
-            <div class="output-global-actions">
-              <div class="output-overview-stack">
-                <span id="output-overview">等待输出</span>
-                <span class="node-test-status" id="node-test-status" role="status" aria-live="polite"></span>
-              </div>
-              <div class="output-actions-stack">
-                <div class="node-test-toolbar">
+              <section class="operation-panel-group" aria-labelledby="operation-test-title">
+                <h3 id="operation-test-title">节点检测</h3>
+                <div class="operation-button-grid node-test-toolbar" role="group" aria-label="节点检测操作">
                   <button class="primary-button compact node-test-button" id="node-test-all-button" type="button" disabled>一键测试</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="tcping" type="button" disabled>TCPing</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="url204" type="button" disabled>204 URL</button>
@@ -101,7 +92,11 @@
                   <button class="secondary-button node-test-button" data-node-test-kind="exit" type="button" disabled>出口检测</button>
                   <button class="secondary-button node-test-button" data-node-test-kind="unlock" type="button" disabled>解锁</button>
                 </div>
-                <div class="output-utility-actions">
+              </section>
+
+              <section class="operation-panel-group" aria-labelledby="operation-export-title">
+                <h3 id="operation-export-title">复制与导出</h3>
+                <div class="operation-button-grid">
                   <button class="secondary-button" id="copy-button" type="button" disabled>复制URI到剪切板</button>
                   <button class="primary-button compact" id="save-button" type="button" disabled>
                     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -112,10 +107,9 @@
                   <button class="secondary-button" id="export-table-button" type="button" disabled>保存表格为xlsx</button>
                   <button class="secondary-button" id="export-table-png-button" type="button" disabled>保存表格为png</button>
                 </div>
-              </div>
+              </section>
             </div>
-
-          </section>
+          </aside>
         </div>
       </main>
 
