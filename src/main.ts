@@ -737,7 +737,7 @@ const dom = {
   settingsPanes: Array.from(document.querySelectorAll<HTMLElement>("[data-settings-pane]")),
   settingsSubnavs: Array.from(document.querySelectorAll<HTMLElement>("[data-settings-subnav]")),
   settingsSubnavButtons: Array.from(document.querySelectorAll<HTMLButtonElement>("[data-settings-anchor]")),
-  outputColumnVisibilityGroups: getElement<HTMLDivElement>("output-column-visibility-groups"),
+  outputColumnVisibilityGroups: Array.from(document.querySelectorAll<HTMLDivElement>("[data-output-column-group]")),
   importClipboardButton: getElement<HTMLButtonElement>("import-clipboard-button"),
   importFileButton: getElement<HTMLButtonElement>("import-file-button"),
   importQrButton: getElement<HTMLButtonElement>("import-qr-button"),
@@ -1844,12 +1844,12 @@ function renderOutputFilterSettingsOptions() {
 
 type OutputColumnGroupId = "basic" | "link" | "performance" | "ipQuality" | "unlock";
 
-const OUTPUT_COLUMN_GROUPS: Array<{ id: OutputColumnGroupId; label: string }> = [
-  { id: "basic", label: "基础信息" },
-  { id: "link", label: "链路信息" },
-  { id: "performance", label: "性能信息" },
-  { id: "ipQuality", label: "IP 质量" },
-  { id: "unlock", label: "解锁信息" },
+const OUTPUT_COLUMN_GROUPS: Array<{ id: OutputColumnGroupId }> = [
+  { id: "basic" },
+  { id: "link" },
+  { id: "performance" },
+  { id: "ipQuality" },
+  { id: "unlock" },
 ];
 
 const OUTPUT_COLUMN_GROUP_BY_KEY = new Map<string, OutputColumnGroupId>([
@@ -1871,20 +1871,11 @@ function renderOutputColumnVisibilityOptions() {
   );
   for (const column of columns) columnsByGroup.get(outputColumnGroupForKey(column.key))?.push(column);
 
-  const groups = OUTPUT_COLUMN_GROUPS.flatMap(group => {
-    const groupedColumns = columnsByGroup.get(group.id) ?? [];
-    if (groupedColumns.length === 0) return [];
-
-    const section = document.createElement("section");
-    section.className = "output-column-visibility-group";
-    const heading = document.createElement("h4");
-    heading.textContent = group.label;
-    const options = document.createElement("div");
-    options.className = "output-column-visibility-options";
-    options.setAttribute("role", "group");
-    options.setAttribute("aria-label", group.label);
-
-    for (const column of groupedColumns) {
+  for (const group of OUTPUT_COLUMN_GROUPS) {
+    const options = dom.outputColumnVisibilityGroups.find(container => container.dataset.outputColumnGroup === group.id);
+    if (!options) continue;
+    const groupColumns = columnsByGroup.get(group.id) ?? [];
+    const groupOptions = groupColumns.map(column => {
       const option = document.createElement("label");
       option.className = "test-service-option";
       const checkbox = document.createElement("input");
@@ -1899,13 +1890,10 @@ function renderOutputColumnVisibilityOptions() {
       const name = document.createElement("span");
       name.textContent = column.settingsLabel ?? column.label;
       option.append(checkbox, name);
-      options.append(option);
-    }
-
-    section.append(heading, options);
-    return [section];
-  });
-  dom.outputColumnVisibilityGroups.replaceChildren(...groups);
+      return option;
+    });
+    options.replaceChildren(...groupOptions);
+  }
 }
 
 function applyOutputFilter() {

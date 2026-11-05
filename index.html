@@ -189,7 +189,11 @@
                 </section>
                 <section class="settings-subnav" data-settings-subnav="list" hidden>
                   <h2>列表</h2>
-                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-list-columns-title">列显示</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-list-basic-title">基础信息</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-list-link-title">链路信息</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-list-performance-title">性能信息</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-list-ip-quality-title">IP 质量</button>
+                  <button class="settings-subnav-button" type="button" data-settings-anchor="settings-list-unlock-title">解锁信息</button>
                 </section>
                 <section class="settings-subnav" data-settings-subnav="detection" hidden>
                   <h2>节点检测</h2>
@@ -349,10 +353,25 @@
                 <h2 id="settings-pane-title-list">列表</h2>
               </div>
               <div class="settings-pane-sections">
-                <section class="settings-section" aria-labelledby="settings-list-columns-title" data-settings-content="settings-list-columns-title">
-                  <h3 id="settings-list-columns-title">列显示</h3>
-                  <p class="settings-description">选择结果列表中显示的列，各列可以单独设置。</p>
-                  <div id="output-column-visibility-groups" class="output-column-visibility-groups"></div>
+                <section class="settings-section" aria-labelledby="settings-list-basic-title" data-settings-content="settings-list-basic-title">
+                  <h3 id="settings-list-basic-title">基础信息</h3>
+                  <div class="output-column-visibility-options" data-output-column-group="basic" role="group" aria-label="基础信息"></div>
+                </section>
+                <section class="settings-section" aria-labelledby="settings-list-link-title" data-settings-content="settings-list-link-title" hidden>
+                  <h3 id="settings-list-link-title">链路信息</h3>
+                  <div class="output-column-visibility-options" data-output-column-group="link" role="group" aria-label="链路信息"></div>
+                </section>
+                <section class="settings-section" aria-labelledby="settings-list-performance-title" data-settings-content="settings-list-performance-title" hidden>
+                  <h3 id="settings-list-performance-title">性能信息</h3>
+                  <div class="output-column-visibility-options" data-output-column-group="performance" role="group" aria-label="性能信息"></div>
+                </section>
+                <section class="settings-section" aria-labelledby="settings-list-ip-quality-title" data-settings-content="settings-list-ip-quality-title" hidden>
+                  <h3 id="settings-list-ip-quality-title">IP 质量</h3>
+                  <div class="output-column-visibility-options" data-output-column-group="ipQuality" role="group" aria-label="IP 质量"></div>
+                </section>
+                <section class="settings-section" aria-labelledby="settings-list-unlock-title" data-settings-content="settings-list-unlock-title" hidden>
+                  <h3 id="settings-list-unlock-title">解锁信息</h3>
+                  <div class="output-column-visibility-options" data-output-column-group="unlock" role="group" aria-label="解锁信息"></div>
                 </section>
               </div>
             </section>
