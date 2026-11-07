@@ -155,7 +155,7 @@
               </button>
               <button class="settings-home-card" id="settings-tab-detection" type="button" data-settings-tab="detection" aria-pressed="false">
                 <svg class="settings-home-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2 4 5v6c0 5.2 3.4 9.8 8 11 4.6-1.2 8-5.8 8-11V5l-8-3zm0 3.2 5 1.9V11c0 3.7-2.1 7.1-5 8.3-2.9-1.2-5-4.6-5-8.3V7.1l5-1.9zm-1 9.4-2-2-1.4 1.4L11 17l5.4-5.4L15 10.2l-4 4.4z" /></svg>
-                <span class="settings-home-card-copy"><strong>节点检测</strong><span>延迟、速度、链路、IP 和解锁检测</span></span>
+                <span class="settings-home-card-copy"><strong>测试项</strong><span>延迟、速度、链路、IP 和解锁检测</span></span>
               </button>
             </div>
             <p class="settings-home-empty" id="settings-home-empty" hidden>没有匹配的设置分类</p>
@@ -190,7 +190,7 @@
                   <button class="settings-subnav-button" type="button" data-settings-anchor="settings-list-unlock-title">解锁信息</button>
                 </section>
                 <section class="settings-subnav" data-settings-subnav="detection" hidden>
-                  <h2>节点检测</h2>
+                  <h2>测试项</h2>
                   <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-one-click-settings">一键测试项目</button>
                   <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-tcping-settings">TCPing</button>
                   <button class="settings-subnav-button" type="button" data-settings-anchor="node-test-url204-settings">204 URL</button>
@@ -201,13 +201,9 @@
               </nav>
             </aside>
           <div class="settings-content" id="settings-content">
-            <section class="settings-pane" id="settings-pane-input" role="region" aria-labelledby="settings-pane-title-input" data-settings-pane="input" tabindex="0">
-              <div class="settings-pane-heading">
-                <h2 id="settings-pane-title-input">输入</h2>
-              </div>
+            <section class="settings-pane" id="settings-pane-input" role="region" aria-label="输入" data-settings-pane="input" tabindex="0">
               <div class="settings-pane-sections settings-pane-grid">
-                <section class="settings-section" aria-labelledby="settings-request-title" data-settings-content="settings-request-title">
-                  <h3 id="settings-request-title">订阅请求</h3>
+                <section class="settings-section" id="settings-request-title" data-settings-content="settings-request-title" aria-label="订阅请求">
                   <label class="settings-row">
                     <span>远程订阅拉取</span>
                     <input class="settings-checkbox" id="remote-subscription-fetch-enabled" type="checkbox" checked />
@@ -234,8 +230,7 @@
                   />
                 </section>
 
-                <section class="settings-section" aria-labelledby="settings-security-title" data-settings-content="settings-security-title">
-                  <h3 id="settings-security-title">连接</h3>
+                <section class="settings-section" id="settings-security-title" data-settings-content="settings-security-title" aria-label="连接">
                   <label class="settings-row">
                     <span>允许本机及局域网</span>
                     <input class="settings-checkbox" id="allow-local-network" type="checkbox" />
@@ -246,8 +241,7 @@
                   </label>
                 </section>
 
-                <section class="settings-section settings-section-wide" aria-labelledby="settings-limits-title" data-settings-content="settings-limits-title">
-                  <h3 id="settings-limits-title">请求限制</h3>
+                <section class="settings-section settings-section-wide" id="settings-limits-title" data-settings-content="settings-limits-title" aria-label="请求限制">
                   <label class="settings-row">
                     <span>最大重定向</span>
                     <span class="settings-value">
@@ -276,13 +270,9 @@
 
               </div>
             </section>
-            <section class="settings-pane" id="settings-pane-output" role="region" aria-labelledby="settings-pane-title-output" data-settings-pane="output" tabindex="0" hidden>
-              <div class="settings-pane-heading">
-                <h2 id="settings-pane-title-output">输出</h2>
-              </div>
+            <section class="settings-pane" id="settings-pane-output" role="region" aria-label="输出" data-settings-pane="output" tabindex="0" hidden>
               <div class="settings-pane-sections settings-pane-grid">
-                <section class="settings-section" aria-labelledby="settings-output-title" data-settings-content="settings-output-title">
-                  <h3 id="settings-output-title">输出结果</h3>
+                <section class="settings-section" id="settings-output-title" data-settings-content="settings-output-title" aria-label="输出结果">
                   <label class="settings-row">
                     <span>自动去重</span>
                     <input class="settings-checkbox" id="deduplicate-output" type="checkbox" />
@@ -293,8 +283,7 @@
                   </label>
                 </section>
 
-                <section class="settings-section" aria-labelledby="settings-batch-rename-title" data-settings-content="settings-batch-rename-title">
-                  <h3 id="settings-batch-rename-title">批量重命名</h3>
+                <section class="settings-section" id="settings-batch-rename-title" data-settings-content="settings-batch-rename-title" aria-label="批量重命名">
                   <div class="test-service-options batch-rename-options" role="group" aria-label="批量重命名字段">
                     <label class="test-service-option"><input id="batch-rename-region" type="checkbox" checked /><span>地区</span></label>
                     <label class="test-service-option"><input id="batch-rename-entry" type="checkbox" checked /><span>入口检测</span></label>
@@ -308,8 +297,7 @@
                   </div>
                 </section>
 
-                <section class="settings-section settings-section-wide" aria-labelledby="settings-output-filter-title" data-settings-content="settings-output-filter-title">
-                  <h3 id="settings-output-filter-title">当前结果筛选</h3>
+                <section class="settings-section settings-section-wide" id="settings-output-filter-title" data-settings-content="settings-output-filter-title" aria-label="当前结果筛选">
                   <div class="settings-filter-groups">
                     <section class="output-rule-section settings-filter-group" aria-labelledby="output-filter-protocol-title">
                       <div class="output-rule-section-heading">
@@ -342,48 +330,33 @@
 
               </div>
             </section>
-            <section class="settings-pane" id="settings-pane-list" role="region" aria-labelledby="settings-pane-title-list" data-settings-pane="list" tabindex="0" hidden>
-              <div class="settings-pane-heading">
-                <h2 id="settings-pane-title-list">列表</h2>
-              </div>
+            <section class="settings-pane" id="settings-pane-list" role="region" aria-label="列表" data-settings-pane="list" tabindex="0" hidden>
               <div class="settings-pane-sections">
-                <section class="settings-section" aria-labelledby="settings-list-basic-title" data-settings-content="settings-list-basic-title">
-                  <h3 id="settings-list-basic-title">基础信息</h3>
+                <section class="settings-section" id="settings-list-basic-title" data-settings-content="settings-list-basic-title" aria-label="基础信息">
                   <div class="output-column-visibility-options" data-output-column-group="basic" role="group" aria-label="基础信息"></div>
                 </section>
-                <section class="settings-section" aria-labelledby="settings-list-link-title" data-settings-content="settings-list-link-title" hidden>
-                  <h3 id="settings-list-link-title">链路信息</h3>
+                <section class="settings-section" id="settings-list-link-title" data-settings-content="settings-list-link-title" aria-label="链路信息" hidden>
                   <div class="output-column-visibility-options" data-output-column-group="link" role="group" aria-label="链路信息"></div>
                 </section>
-                <section class="settings-section" aria-labelledby="settings-list-performance-title" data-settings-content="settings-list-performance-title" hidden>
-                  <h3 id="settings-list-performance-title">性能信息</h3>
+                <section class="settings-section" id="settings-list-performance-title" data-settings-content="settings-list-performance-title" aria-label="性能信息" hidden>
                   <div class="output-column-visibility-options" data-output-column-group="performance" role="group" aria-label="性能信息"></div>
                 </section>
-                <section class="settings-section" aria-labelledby="settings-list-ip-quality-title" data-settings-content="settings-list-ip-quality-title" hidden>
-                  <h3 id="settings-list-ip-quality-title">IP 质量</h3>
+                <section class="settings-section" id="settings-list-ip-quality-title" data-settings-content="settings-list-ip-quality-title" aria-label="IP 质量" hidden>
                   <div class="output-column-visibility-options" data-output-column-group="ipQuality" role="group" aria-label="IP 质量"></div>
                 </section>
-                <section class="settings-section" aria-labelledby="settings-list-unlock-title" data-settings-content="settings-list-unlock-title" hidden>
-                  <h3 id="settings-list-unlock-title">解锁信息</h3>
+                <section class="settings-section" id="settings-list-unlock-title" data-settings-content="settings-list-unlock-title" aria-label="解锁信息" hidden>
                   <div class="output-column-visibility-options" data-output-column-group="unlock" role="group" aria-label="解锁信息"></div>
                 </section>
               </div>
             </section>
-            <section class="settings-pane" id="settings-pane-detection" role="region" aria-labelledby="settings-pane-title-detection" data-settings-pane="detection" tabindex="0" hidden>
-              <div class="settings-pane-heading">
-                <h2 id="settings-pane-title-detection">节点检测</h2>
-              </div>
+            <section class="settings-pane" id="settings-pane-detection" role="region" aria-label="测试项" data-settings-pane="detection" tabindex="0" hidden>
               <div class="settings-pane-sections">
-                <section class="settings-section" aria-labelledby="settings-node-test-title">
-                  <h3 id="settings-node-test-title">检测参数</h3>
-
-                  <section class="test-settings-group" id="node-test-one-click-settings" data-settings-content="node-test-one-click-settings">
-                    <h4 class="settings-test-heading">一键测试项目</h4>
+                <div class="settings-section">
+                  <section class="test-settings-group" id="node-test-one-click-settings" data-settings-content="node-test-one-click-settings" aria-label="一键测试项目">
                     <div class="test-service-options" id="node-test-one-click-options" role="group" aria-label="一键测试项目"></div>
                   </section>
 
-                  <section class="test-settings-group" id="node-test-tcping-settings" data-settings-content="node-test-tcping-settings">
-                    <h4 class="settings-test-heading">TCPing</h4>
+                  <section class="test-settings-group" id="node-test-tcping-settings" data-settings-content="node-test-tcping-settings" aria-label="TCPing">
                     <label class="settings-row">
                       <span>超时</span>
                       <span class="settings-value">
@@ -407,8 +380,7 @@
                     </label>
                   </section>
 
-                  <section class="test-settings-group" id="node-test-url204-settings" data-settings-content="node-test-url204-settings">
-                    <h4 class="settings-test-heading">204 URL</h4>
+                  <section class="test-settings-group" id="node-test-url204-settings" data-settings-content="node-test-url204-settings" aria-label="204 URL">
                     <label class="settings-row settings-row-wide">
                       <span>主地址</span>
                       <span class="settings-value settings-value-wide">
@@ -451,8 +423,7 @@
                     </label>
                   </section>
 
-                  <section class="test-settings-group" id="node-test-bandwidth-settings" data-settings-content="node-test-bandwidth-settings">
-                    <h4 class="settings-test-heading">传输质量测速</h4>
+                  <section class="test-settings-group" id="node-test-bandwidth-settings" data-settings-content="node-test-bandwidth-settings" aria-label="传输质量测速">
                     <label class="settings-row settings-row-wide">
                       <span>下载地址</span>
                       <span class="settings-value settings-value-wide">
@@ -496,8 +467,7 @@
                     </label>
                   </section>
 
-                  <section class="test-settings-group link-detection-group" id="node-test-link-settings" data-settings-content="node-test-link-settings">
-                    <h4 class="settings-test-heading">链路检测</h4>
+                  <section class="test-settings-group link-detection-group" id="node-test-link-settings" data-settings-content="node-test-link-settings" aria-label="链路检测">
 
                     <section class="test-settings-group settings-test-subsection">
                       <h5 class="settings-test-subheading">入口检测</h5>
@@ -643,8 +613,7 @@
                     </section>
                   </section>
 
-                  <section class="test-settings-group" id="node-test-unlock-settings" data-settings-content="node-test-unlock-settings">
-                    <h4 class="settings-test-heading">流媒体与 AI 解锁</h4>
+                  <section class="test-settings-group" id="node-test-unlock-settings" data-settings-content="node-test-unlock-settings" aria-label="流媒体与 AI 解锁">
                     <label class="settings-row">
                       <span>节点并发</span>
                       <span class="settings-value settings-value-concurrency">
@@ -671,7 +640,7 @@
                     </label>
                     <div class="test-service-options" id="node-test-unlock-services"></div>
                   </section>
-                </section>
+                </div>
 
               </div>
             </section>
